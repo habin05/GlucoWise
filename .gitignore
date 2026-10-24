@@ -218,3 +218,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# Local environment files
+.env.*
+!.env.example
+
+# Local data files (only if they contain real/private data)
+# data/private/
+
