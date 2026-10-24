@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -12,6 +11,7 @@ from glucose_analysis import (
     compare_foods,
     analyze_user_patterns,
 )
+from agent_context import build_agent_prompt
 
 st.set_page_config(
     page_title="GlucoWise",
@@ -180,7 +180,7 @@ st.header("🤖 Ask GlucoWise AI")
 
 question = st.text_input(
     "Your question",
-    placeholder="e.g. How did my glucose change after this meal?",
+    placeholder="e.g. How did white rice compare with brown rice?",
 )
 
 if st.button("Ask AI", type="primary"):
@@ -189,49 +189,18 @@ if st.button("Ask AI", type="primary"):
 
     else:
         try:
-            endpoint = (
-                "https://whb050704-4696-resource.services.ai.azure.com"
-                "/api/projects/whb050704-4696"
-            )
+            # Full pre-computed analysis for the selected user + the question.
+            # The agent only explains these numbers.
+            prompt = build_agent_prompt(user_id, question)
+
+            # Debug view: shows exactly what the agent receives (works without Azure).
+            print(prompt)
+            with st.expander("🔍 Prompt sent to the AI (debug)"):
+                st.code(prompt, language="json")
+
+            # Endpoint lives in .streamlit/secrets.toml (git-ignored).
+            endpoint = st.secrets["FOUNDRY_ENDPOINT"]
             agent_name = "GlucoWise-Agent"
-
-            # Prepare verified results from the local analysis module.
-            if result is not None:
-                analysis_context = (
-                    f"Baseline: {result.get('baseline')} mg/dL\n"
-                    f"Peak: {result.get('peak')} mg/dL\n"
-                    f"Rise: {result.get('rise')} mg/dL\n"
-                    f"Unit: {result.get('unit', 'mg/dL')}\n"
-                    f"Data type: {result.get('data_type', 'simulated')}"
-                )
-            else:
-                analysis_context = (
-                    "No glucose metrics are available for this meal. "
-                    "Do not invent missing values."
-                )
-
-            prompt = f"""
-You are GlucoWise, an assistant that helps users understand
-continuous glucose monitoring (CGM) data.
-
-All data in this demo are simulated, not real medical measurements.
-Explain results carefully and do not give a medical diagnosis.
-Never invent missing glucose measurements.
-
-Selected user: {user_id}
-Food: {selected_meal.get('food')}
-Meal time: {selected_meal.get('timestamp')}
-Meal ID: {meal_id}
-
-Analysis results:
-{analysis_context}
-
-User question:
-{question}
-
-Answer clearly and explain the numbers in plain language.
-If the analysis results are missing, state that limitation.
-"""
 
             with st.spinner("GlucoWise AI is thinking..."):
                 with DefaultAzureCredential() as credential:
