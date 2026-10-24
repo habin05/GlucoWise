@@ -1,3 +1,5 @@
+import os
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -18,16 +20,28 @@ from glucose_analysis import (
 from agent_context import build_agent_prompt
 from auth_db import login_gate
 
+# Test switch: run with  GLUCOWISE_MOCK=1  to skip Azure and return a fake answer.
+# Off by default, so a normal run (or a push) can never ship mock answers.
+USE_MOCK = os.environ.get("GLUCOWISE_MOCK") == "1"
+
 st.set_page_config(
     page_title="GlucoWise",
     page_icon="📈",
     layout="wide",
 )
 
-user_id = login_gate() 
+user_id = login_gate()
 
 st.title("📈 GlucoWise")
 st.caption("Understand how meals affect your glucose levels")
+
+st.info(
+    "Demo mode: All glucose data shown here are simulated. "
+    "This app does not provide medical advice."
+)
+
+if USE_MOCK:
+    st.warning("Mock mode is ON: the AI answers below are fake (no Azure call).")
 
 # Initialize local SQLite database
 init_db()
@@ -101,11 +115,6 @@ else:
     st.info("No saved meals yet. Add one using the form above.")
 
 
-st.info(
-    "Demo mode: All glucose data shown here are simulated. "
-    "This app does not provide medical advice."
-)
-
 # 2. Load meal history from the analysis module
 st.header("🍽️ Meal history")
 
@@ -119,6 +128,7 @@ try:
 except Exception as e:
     st.error(f"Could not load meal history: {e}")
     st.stop()
+
 
 def meal_label(meal):
     food = str(meal.get("food", "Unknown food"))
@@ -245,53 +255,79 @@ with st.expander("📊 User glucose patterns"):
     except Exception as e:
         st.error(f"Could not analyze user patterns: {e}")
 
-# 7. Ask Foundry Agent
+# 7. Ask Foundry Agent (chat)
 st.header("🤖 Ask GlucoWise AI")
 
-question = st.text_input(
-    "Your question",
-    placeholder="e.g. How did white rice compare with brown rice?",
-)
+# Reset the chat when a different user logs in
+if st.session_state.get("chat_user") != user_id:
+    st.session_state["chat_user"] = user_id
+    st.session_state["chat_messages"] = []
 
-if st.button("Ask AI", type="primary"):
-    if not question.strip():
-        st.warning("Please enter a question.")
+messages = st.session_state["chat_messages"]
 
-    else:
+for m in messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+
+question = st.chat_input("e.g. How did white rice compare with brown rice?")
+
+if question:
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    # Recent turns are added as context only; numbers must come from the JSON.
+    recent = messages[-6:]
+    full_question = question
+    if recent:
+        history_text = "\n".join(
+            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+            for m in recent
+        )
+        full_question = (
+            f"{question}\n\nEarlier conversation (context only; "
+            f"take every number from the JSON above, never from this text):\n"
+            f"{history_text}"
+        )
+
+    with st.chat_message("assistant"):
         try:
-            # Full pre-computed analysis for the selected user + the question.
-            # The agent only explains these numbers.
-            prompt = build_agent_prompt(user_id, question)
+            prompt = build_agent_prompt(user_id, full_question)
 
-            # Debug view: shows exactly what the agent receives (works without Azure).
-            print(prompt)
             with st.expander("🔍 Prompt sent to the AI (debug)"):
                 st.code(prompt, language="json")
 
-            # Endpoint lives in .streamlit/secrets.toml (git-ignored).
-            endpoint = st.secrets["FOUNDRY_ENDPOINT"]
-            agent_name = "GlucoWise-Agent"
+            if USE_MOCK:
+                answer = (
+                    f"(mock answer) turn {len(messages) // 2 + 1}, "
+                    f"prompt length {len(prompt)} chars"
+                )
+            else:
+                # Endpoint lives in .streamlit/secrets.toml (git-ignored).
+                endpoint = st.secrets["FOUNDRY_ENDPOINT"]
+                agent_name = "GlucoWise-Agent"
 
-            with st.spinner("GlucoWise AI is thinking..."):
-                with DefaultAzureCredential() as credential:
-                    with AIProjectClient(
-                        endpoint=endpoint,
-                        credential=credential,
-                        allow_preview=True,
-                    ) as project:
-                        openai_client = project.get_openai_client(
-                            agent_name=agent_name
-                        )
+                with st.spinner("GlucoWise AI is thinking..."):
+                    with DefaultAzureCredential() as credential:
+                        with AIProjectClient(
+                            endpoint=endpoint,
+                            credential=credential,
+                            allow_preview=True,
+                        ) as project:
+                            openai_client = project.get_openai_client(
+                                agent_name=agent_name
+                            )
+                            response = openai_client.responses.create(
+                                input=prompt
+                            )
+                answer = response.output_text
 
-                        response = openai_client.responses.create(
-                            input=prompt
-                        )
-
-            st.session_state["ai_answer"] = response.output_text
+            st.markdown(answer)
+            messages.append({"role": "user", "content": question})
+            messages.append({"role": "assistant", "content": answer})
 
         except Exception as e:
             st.error(f"Foundry Agent request failed: {e}")
 
-if "ai_answer" in st.session_state:
-    st.subheader("💬 GlucoWise AI response")
-    st.markdown(st.session_state["ai_answer"])
+if messages and st.button("Clear chat"):
+    st.session_state["chat_messages"] = []
+    st.rerun()
