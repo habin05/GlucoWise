@@ -227,3 +227,4 @@ __marimo__/
 # Local data files (only if they contain real/private data)
 # data/private/
 
+data/glucowise_users.db
