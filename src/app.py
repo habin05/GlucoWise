@@ -24,18 +24,10 @@ st.set_page_config(
     layout="wide",
 )
 
-st.set_page_config(page_title="GlucoWise", page_icon="📈", layout="wide")
-
 user_id = login_gate() 
 
 st.title("📈 GlucoWise")
 st.caption("Understand how meals affect your glucose levels")
-
-
-user_id = st.selectbox(
-    "Select Demo User",
-    ["A", "B", "C"],
-)
 
 # Initialize local SQLite database
 init_db()
