@@ -151,6 +151,7 @@ if "cgm_data" in st.session_state:
         if not question.strip():
             st.warning("Please enter a question.")
         else:
+<<<<<<< HEAD
             try:
                 endpoint = (
                     "https://whb050704-4696-resource.services.ai.azure.com"
@@ -194,3 +195,10 @@ if "ai_answer" in st.session_state:
     st.subheader("💬 GlucoWise AI response")
     st.markdown(st.session_state["ai_answer"])
 
+=======
+            st.info(
+                "AI integration is not connected yet. "
+                "This section will display the answer after "
+                "the Microsoft Foundry integration is added."
+            )
+>>>>>>> origin/main
