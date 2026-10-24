@@ -1,0 +1,1 @@
+print("GlucoWise Data Pipeline is ready!")
