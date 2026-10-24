@@ -1,10 +1,64 @@
-meal_id,timestamp,food
-1,2026-10-20 08:00:00,Oatmeal
-2,2026-10-20 13:00:00,Pasta
-3,2026-10-20 19:00:00,Chicken Salad
-4,2026-10-21 08:00:00,Pasta
-5,2026-10-21 13:00:00,Chicken Salad
-6,2026-10-21 19:00:00,Oatmeal
-7,2026-10-22 08:00:00,Chicken Salad
-8,2026-10-22 13:00:00,Oatmeal
-9,2026-10-22 19:00:00,Pasta
+meal_id,user_id,scenario_id,timestamp,food,description,primary_portion_g,carbs_g,meal_order
+A_D01_1_white_rice,A,A,2026-10-01T08:00:00-07:00,white_rice,White rice 150g; steamed egg 100g; spinach 70g; kimchi 30g,150.0,,unspecified
+A_D01_2_brown_rice,A,A,2026-10-01T12:30:00-07:00,brown_rice,Brown rice 170g; grilled chicken breast 100g; broccoli 80g; stir-fried mushrooms 60g,170.0,,unspecified
+A_D01_3_whole_oats,A,A,2026-10-01T18:30:00-07:00,whole_oats,Cooked whole oats 220g; grilled beef 100g; bok choy 80g; radish salad 50g,220.0,,unspecified
+A_D02_1_brown_rice,A,A,2026-10-02T08:00:00-07:00,brown_rice,Brown rice 170g; steamed egg 100g; spinach 70g; kimchi 30g,170.0,,unspecified
+A_D02_2_whole_oats,A,A,2026-10-02T12:30:00-07:00,whole_oats,Cooked whole oats 220g; grilled chicken breast 100g; broccoli 80g; stir-fried mushrooms 60g,220.0,,unspecified
+A_D02_3_white_rice,A,A,2026-10-02T18:30:00-07:00,white_rice,White rice 150g; grilled beef 100g; bok choy 80g; radish salad 50g,150.0,,unspecified
+A_D03_1_whole_oats,A,A,2026-10-03T08:00:00-07:00,whole_oats,Cooked whole oats 220g; steamed egg 100g; spinach 70g; kimchi 30g,220.0,,unspecified
+A_D03_2_white_rice,A,A,2026-10-03T12:30:00-07:00,white_rice,White rice 150g; grilled chicken breast 100g; broccoli 80g; stir-fried mushrooms 60g,150.0,,unspecified
+A_D03_3_brown_rice,A,A,2026-10-03T18:30:00-07:00,brown_rice,Brown rice 170g; grilled beef 100g; bok choy 80g; radish salad 50g,170.0,,unspecified
+A_D04_1_white_rice,A,A,2026-10-04T08:00:00-07:00,white_rice,White rice 150g; pan-fried tofu 100g; cucumber salad 70g; rolled omelet 100g,150.0,,unspecified
+A_D04_2_brown_rice,A,A,2026-10-04T12:30:00-07:00,brown_rice,Brown rice 170g; grilled pork 100g; stir-fried cabbage 80g; seasoned bean sprouts 60g,170.0,,unspecified
+A_D04_3_whole_oats,A,A,2026-10-04T18:30:00-07:00,whole_oats,Cooked whole oats 220g; chicken and mushroom stir-fry 120g; bell pepper 60g; grilled eggplant 80g,220.0,,unspecified
+A_D05_1_brown_rice,A,A,2026-10-05T08:00:00-07:00,brown_rice,Brown rice 170g; pan-fried tofu 100g; cucumber salad 70g; rolled omelet 100g,170.0,,unspecified
+A_D05_2_whole_oats,A,A,2026-10-05T12:30:00-07:00,whole_oats,Cooked whole oats 220g; grilled pork 100g; stir-fried cabbage 80g; seasoned bean sprouts 60g,220.0,,unspecified
+A_D05_3_white_rice,A,A,2026-10-05T18:30:00-07:00,white_rice,White rice 150g; chicken and mushroom stir-fry 120g; bell pepper 60g; grilled eggplant 80g,150.0,,unspecified
+A_D06_1_whole_oats,A,A,2026-10-06T08:00:00-07:00,whole_oats,Cooked whole oats 220g; pan-fried tofu 100g; cucumber salad 70g; rolled omelet 100g,220.0,,unspecified
+A_D06_2_white_rice,A,A,2026-10-06T12:30:00-07:00,white_rice,White rice 150g; grilled pork 100g; stir-fried cabbage 80g; seasoned bean sprouts 60g,150.0,,unspecified
+A_D06_3_brown_rice,A,A,2026-10-06T18:30:00-07:00,brown_rice,Brown rice 170g; chicken and mushroom stir-fry 120g; bell pepper 60g; grilled eggplant 80g,170.0,,unspecified
+A_D07_1_white_rice,A,A,2026-10-07T08:00:00-07:00,white_rice,White rice 150g; steamed egg 100g; spinach 70g; kimchi 30g,150.0,,unspecified
+A_D07_2_brown_rice,A,A,2026-10-07T12:30:00-07:00,brown_rice,Brown rice 170g; grilled chicken breast 100g; broccoli 80g; stir-fried mushrooms 60g,170.0,,unspecified
+A_D07_3_whole_oats,A,A,2026-10-07T18:30:00-07:00,whole_oats,Cooked whole oats 220g; grilled beef 100g; bok choy 80g; radish salad 50g,220.0,,unspecified
+B_D01_1_banana,B,B,2026-10-01T08:00:00-07:00,banana,Banana 80g; boiled eggs 100g; Greek yogurt 150g,80.0,,unspecified
+B_D01_2_apple,B,B,2026-10-01T12:30:00-07:00,apple,Apple 110g; grilled chicken breast 120g; salad 100g; whole-wheat bread 50g,110.0,,unspecified
+B_D01_3_mango,B,B,2026-10-01T18:30:00-07:00,mango,Mango 100g; grilled salmon 120g; brown rice 100g; broccoli 100g,100.0,,unspecified
+B_D02_1_orange,B,B,2026-10-02T08:00:00-07:00,orange,Orange 130g; boiled eggs 100g; Greek yogurt 150g,130.0,,unspecified
+B_D02_2_pineapple,B,B,2026-10-02T12:30:00-07:00,pineapple,Pineapple 120g; grilled chicken breast 120g; salad 100g; whole-wheat bread 50g,120.0,,unspecified
+B_D02_3_strawberry,B,B,2026-10-02T18:30:00-07:00,strawberry,Strawberries 180g; grilled salmon 120g; brown rice 100g; broccoli 100g,180.0,,unspecified
+B_D03_1_mango,B,B,2026-10-03T08:00:00-07:00,mango,Mango 100g; boiled eggs 100g; Greek yogurt 150g,100.0,,unspecified
+B_D03_2_orange,B,B,2026-10-03T12:30:00-07:00,orange,Orange 130g; grilled chicken breast 120g; salad 100g; whole-wheat bread 50g,130.0,,unspecified
+B_D03_3_banana,B,B,2026-10-03T18:30:00-07:00,banana,Banana 80g; grilled salmon 120g; brown rice 100g; broccoli 100g,80.0,,unspecified
+B_D04_1_strawberry,B,B,2026-10-04T08:00:00-07:00,strawberry,Strawberries 180g; omelet 120g; plain yogurt 150g,180.0,,unspecified
+B_D04_2_banana,B,B,2026-10-04T12:30:00-07:00,banana,Banana 80g; grilled beef 120g; lettuce salad 100g; whole-wheat bread 50g,80.0,,unspecified
+B_D04_3_apple,B,B,2026-10-04T18:30:00-07:00,apple,Apple 110g; grilled chicken 120g; brown rice 100g; spinach 80g,110.0,,unspecified
+B_D05_1_pineapple,B,B,2026-10-05T08:00:00-07:00,pineapple,Pineapple 120g; omelet 120g; plain yogurt 150g,120.0,,unspecified
+B_D05_2_strawberry,B,B,2026-10-05T12:30:00-07:00,strawberry,Strawberries 180g; grilled beef 120g; lettuce salad 100g; whole-wheat bread 50g,180.0,,unspecified
+B_D05_3_mango,B,B,2026-10-05T18:30:00-07:00,mango,Mango 100g; grilled chicken 120g; brown rice 100g; spinach 80g,100.0,,unspecified
+B_D06_1_apple,B,B,2026-10-06T08:00:00-07:00,apple,Apple 110g; omelet 120g; plain yogurt 150g,110.0,,unspecified
+B_D06_2_mango,B,B,2026-10-06T12:30:00-07:00,mango,Mango 100g; grilled beef 120g; lettuce salad 100g; whole-wheat bread 50g,100.0,,unspecified
+B_D06_3_orange,B,B,2026-10-06T18:30:00-07:00,orange,Orange 130g; grilled chicken 120g; brown rice 100g; spinach 80g,130.0,,unspecified
+B_D07_1_banana,B,B,2026-10-07T08:00:00-07:00,banana,Banana 80g; boiled eggs 100g; Greek yogurt 150g,80.0,,unspecified
+B_D07_2_pineapple,B,B,2026-10-07T12:30:00-07:00,pineapple,Pineapple 120g; grilled chicken breast 120g; salad 100g; whole-wheat bread 50g,120.0,,unspecified
+B_D07_3_strawberry,B,B,2026-10-07T18:30:00-07:00,strawberry,Strawberries 180g; grilled salmon 120g; brown rice 100g; broccoli 100g,180.0,,unspecified
+C_D01_1_boiled_potato,C,C,2026-10-01T08:00:00-07:00,boiled_potato,Boiled potato 160g; scrambled eggs 100g; cucumber 80g,160.0,,unspecified
+C_D01_2_baked_sweet_potato,C,C,2026-10-01T12:30:00-07:00,baked_sweet_potato,Baked sweet potato 140g; grilled chicken breast 120g; broccoli 100g,140.0,,unspecified
+C_D01_3_white_rice,C,C,2026-10-01T18:30:00-07:00,white_rice,White rice 130g; grilled beef 120g; spinach 80g; stir-fried mushrooms 60g,130.0,,unspecified
+C_D02_1_baked_sweet_potato,C,C,2026-10-02T08:00:00-07:00,baked_sweet_potato,Baked sweet potato 140g; scrambled eggs 100g; cucumber 80g,140.0,,unspecified
+C_D02_2_white_rice,C,C,2026-10-02T12:30:00-07:00,white_rice,White rice 130g; grilled chicken breast 120g; broccoli 100g,130.0,,unspecified
+C_D02_3_boiled_potato,C,C,2026-10-02T18:30:00-07:00,boiled_potato,Boiled potato 160g; grilled beef 120g; spinach 80g; stir-fried mushrooms 60g,160.0,,unspecified
+C_D03_1_white_rice,C,C,2026-10-03T08:00:00-07:00,white_rice,White rice 130g; scrambled eggs 100g; cucumber 80g,130.0,,unspecified
+C_D03_2_boiled_potato,C,C,2026-10-03T12:30:00-07:00,boiled_potato,Boiled potato 160g; grilled chicken breast 120g; broccoli 100g,160.0,,unspecified
+C_D03_3_baked_sweet_potato,C,C,2026-10-03T18:30:00-07:00,baked_sweet_potato,Baked sweet potato 140g; grilled beef 120g; spinach 80g; stir-fried mushrooms 60g,140.0,,unspecified
+C_D04_1_boiled_potato,C,C,2026-10-04T08:00:00-07:00,boiled_potato,Boiled potato 160g; boiled eggs 100g; tomato 100g,160.0,,unspecified
+C_D04_2_baked_sweet_potato,C,C,2026-10-04T12:30:00-07:00,baked_sweet_potato,Baked sweet potato 140g; grilled pork 120g; stir-fried cabbage 100g,140.0,,unspecified
+C_D04_3_white_rice,C,C,2026-10-04T18:30:00-07:00,white_rice,White rice 130g; grilled fish 120g; bok choy 80g; grilled eggplant 80g,130.0,,unspecified
+C_D05_1_baked_sweet_potato,C,C,2026-10-05T08:00:00-07:00,baked_sweet_potato,Baked sweet potato 140g; boiled eggs 100g; tomato 100g,140.0,,unspecified
+C_D05_2_white_rice,C,C,2026-10-05T12:30:00-07:00,white_rice,White rice 130g; grilled pork 120g; stir-fried cabbage 100g,130.0,,unspecified
+C_D05_3_boiled_potato,C,C,2026-10-05T18:30:00-07:00,boiled_potato,Boiled potato 160g; grilled fish 120g; bok choy 80g; grilled eggplant 80g,160.0,,unspecified
+C_D06_1_white_rice,C,C,2026-10-06T08:00:00-07:00,white_rice,White rice 130g; boiled eggs 100g; tomato 100g,130.0,,unspecified
+C_D06_2_boiled_potato,C,C,2026-10-06T12:30:00-07:00,boiled_potato,Boiled potato 160g; grilled pork 120g; stir-fried cabbage 100g,160.0,,unspecified
+C_D06_3_baked_sweet_potato,C,C,2026-10-06T18:30:00-07:00,baked_sweet_potato,Baked sweet potato 140g; grilled fish 120g; bok choy 80g; grilled eggplant 80g,140.0,,unspecified
+C_D07_1_boiled_potato,C,C,2026-10-07T08:00:00-07:00,boiled_potato,Boiled potato 160g; scrambled eggs 100g; cucumber 80g,160.0,,unspecified
+C_D07_2_baked_sweet_potato,C,C,2026-10-07T12:30:00-07:00,baked_sweet_potato,Baked sweet potato 140g; grilled chicken breast 120g; broccoli 100g,140.0,,unspecified
+C_D07_3_white_rice,C,C,2026-10-07T18:30:00-07:00,white_rice,White rice 130g; grilled beef 120g; spinach 80g; stir-fried mushrooms 60g,130.0,,unspecified
