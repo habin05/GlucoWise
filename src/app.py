@@ -2,6 +2,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from azure.identity import DefaultAzureCredential
+from azure.ai.projects import AIProjectClient
 
 st.set_page_config(
     page_title="GlucoWise",
@@ -144,12 +146,51 @@ if "cgm_data" in st.session_state:
         placeholder="e.g. What happened to my glucose after this meal?",
     )
 
+    
     if st.button("Ask AI"):
         if not question.strip():
             st.warning("Please enter a question.")
         else:
-            st.info(
-                "AI integration is not connected yet. "
-                "This section will display the answer after "
-                "the Microsoft Foundry integration is added."
-            )
+            try:
+                endpoint = (
+                    "https://whb050704-4696-resource.services.ai.azure.com"
+                    "/api/projects/whb050704-4696"
+                )
+                agent_name = "GlucoWise-Agent"
+
+                with st.spinner("GlucoWise AI is thinking..."):
+                    with DefaultAzureCredential() as credential:
+                        with AIProjectClient(
+                            endpoint=endpoint,
+                            credential=credential,
+                            allow_preview=True,
+                        ) as project:
+                            openai_client = project.get_openai_client(
+                                agent_name=agent_name
+                            )
+
+                            response = openai_client.responses.create(
+                                input=(
+                                    "You are GlucoWise, an assistant that "
+                                    "helps users understand CGM data. "
+                                    "No verified meal analysis results "
+                                    "are available yet. Do not invent "
+                                    "glucose measurements or claim to have "
+                                    "analyzed data that was not provided.\n\n"
+                                    f"Food: {st.session_state['meal_name']}\n"
+                                    f"Meal time: {st.session_state['meal_time']}\n"
+                                    f"User question: {question}"
+                                )
+                            )
+
+                            st.session_state["ai_answer"] = (
+                                response.output_text
+                            )
+
+            except Exception as e:
+                st.error(f"Foundry Agent request failed: {e}")
+
+if "ai_answer" in st.session_state:
+    st.subheader("💬 GlucoWise AI response")
+    st.markdown(st.session_state["ai_answer"])
+
