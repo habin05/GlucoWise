@@ -12,12 +12,17 @@ from glucose_analysis import (
     analyze_user_patterns,
 )
 from agent_context import build_agent_prompt
+from auth_db import login_gate
 
 st.set_page_config(
     page_title="GlucoWise",
     page_icon="📈",
     layout="wide",
 )
+
+st.set_page_config(page_title="GlucoWise", page_icon="📈", layout="wide")
+
+user_id = login_gate() 
 
 st.title("📈 GlucoWise")
 st.caption("Understand how meals affect your glucose levels")
