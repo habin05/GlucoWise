@@ -2,6 +2,16 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from azure.identity import DefaultAzureCredential
+from azure.ai.projects import AIProjectClient
+
+from glucose_analysis import (
+    get_meal_history,
+    get_meal_glucose,
+    get_glucose_curve,
+    compare_foods,
+    analyze_user_patterns,
+)
 
 st.set_page_config(
     page_title="GlucoWise",
@@ -13,143 +23,236 @@ st.title("📈 GlucoWise")
 st.caption("Understand how meals affect your glucose levels")
 
 st.info(
-    "Demo mode: uploaded data is used for analysis. "
+    "Demo mode: All glucose data shown here are simulated. "
     "This app does not provide medical advice."
 )
 
-# 1. Meal input
-st.header("🍽️ Log your meal")
+# 1. Select user
+st.header("👤 Select user")
 
-col1, col2 = st.columns(2)
-
-with col1:
-    meal_name = st.text_input(
-        "Food name",
-        placeholder="e.g. Chicken rice bowl",
-    )
-
-with col2:
-    meal_time = st.time_input("Meal time")
-
-# 2. CGM CSV upload
-st.header("📂 Upload CGM data")
-
-uploaded_file = st.file_uploader(
-    "Choose a CSV file",
-    type=["csv"],
-    help="CSV should contain a timestamp column and a glucose column.",
+user_id = st.selectbox(
+    "User",
+    ["A", "B", "C"],
 )
 
-df = None
-time_col = None
-glucose_col = None
+# 2. Load meal history from the analysis module
+st.header("🍽️ Meal history")
 
-if uploaded_file is not None:
-    try:
-        df = pd.read_csv(uploaded_file)
+try:
+    history = get_meal_history(user_id)
 
-        # Accept common column-name variations
-        columns = {str(c).strip().lower(): c for c in df.columns}
+    if not history:
+        st.warning("No meal records found for this user.")
+        st.stop()
 
-        time_candidates = [
-            "timestamp", "time", "datetime", "date_time", "date"
-        ]
-        glucose_candidates = [
-            "glucose", "glucose_mg_dl", "glucose_mg/dl",
-            "blood_glucose", "value", "mg/dl"
-        ]
+except Exception as e:
+    st.error(f"Could not load meal history: {e}")
+    st.stop()
 
-        time_col = next(
-            (columns[c] for c in time_candidates if c in columns),
-            None,
+
+def meal_label(meal):
+    food = str(meal.get("food", "Unknown food"))
+    timestamp = str(meal.get("timestamp", "Unknown time"))
+    return f"{food.replace('_', ' ').title()} — {timestamp}"
+
+
+selected_meal = st.selectbox(
+    "Choose a meal",
+    history,
+    format_func=meal_label,
+)
+
+meal_id = selected_meal["meal_id"]
+
+st.write("**Food:**", str(selected_meal.get("food", "Unknown")).replace("_", " ").title())
+st.write("**Meal time:**", selected_meal.get("timestamp", "Unknown"))
+st.write("**Description:**", selected_meal.get("description", "No description available"))
+st.write("**Portion:**", f"{selected_meal.get('primary_portion_g', 'N/A')} g")
+
+# 3. Get glucose analysis
+st.header("🔎 Glucose analysis")
+
+try:
+    result = get_meal_glucose(user_id, meal_id)
+
+    if result is None:
+        st.warning(
+            "No CGM data is available for this meal's analysis window."
         )
-        glucose_col = next(
-            (columns[c] for c in glucose_candidates if c in columns),
-            None,
+    else:
+        baseline = result.get("baseline")
+        peak = result.get("peak")
+        rise = result.get("rise")
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric(
+            "Baseline",
+            f"{baseline:.1f} mg/dL" if baseline is not None else "N/A",
+        )
+        col2.metric(
+            "Peak",
+            f"{peak:.1f} mg/dL" if peak is not None else "N/A",
+        )
+        col3.metric(
+            "Glucose rise",
+            f"{rise:+.1f} mg/dL" if rise is not None else "N/A",
         )
 
-        if time_col is None or glucose_col is None:
-            st.error(
-                "Could not identify the required columns. "
-                "Please use columns named timestamp and glucose."
+        st.caption(
+            "Baseline: average glucose during the 15 minutes before the meal. "
+            "Peak: maximum glucose within 2 hours after the meal. "
+            "Rise: peak minus baseline. Values are simulated."
+        )
+
+except Exception as e:
+    st.error(f"Could not calculate meal glucose metrics: {e}")
+    result = None
+
+# 4. Glucose curve
+st.subheader("📈 Glucose after the meal")
+
+try:
+    curve = get_glucose_curve(user_id, meal_id)
+
+    if curve:
+        curve_df = pd.DataFrame(curve)
+
+        if not curve_df.empty and {
+            "minutes_from_meal",
+            "glucose_mg_dl",
+        }.issubset(curve_df.columns):
+
+            fig = px.line(
+                curve_df,
+                x="minutes_from_meal",
+                y="glucose_mg_dl",
+                markers=True,
+                labels={
+                    "minutes_from_meal": "Minutes from meal",
+                    "glucose_mg_dl": "Glucose (mg/dL)",
+                },
+                title="Glucose curve around the meal",
             )
-            st.write("Columns found:", list(df.columns))
-            df = None
+
+            fig.add_vline(
+                x=0,
+                line_dash="dash",
+                annotation_text="Meal",
+            )
+
+            fig.update_layout(hovermode="x unified")
+            st.plotly_chart(fig, use_container_width=True)
+
         else:
-            df[time_col] = pd.to_datetime(
-                df[time_col], errors="coerce"
-            )
-            df[glucose_col] = pd.to_numeric(
-                df[glucose_col], errors="coerce"
-            )
-            df = df.dropna(subset=[time_col, glucose_col])
+            st.warning("The glucose curve has an unexpected data format.")
+    else:
+        st.warning("No glucose curve is available for this meal.")
 
-            if df.empty:
-                st.error("No valid timestamp and glucose readings found.")
-            else:
-                st.success(f"CSV loaded: {len(df)} valid readings")
+except Exception as e:
+    st.error(f"Could not load glucose curve: {e}")
 
-                with st.expander("Preview uploaded data"):
-                    st.dataframe(df.head(10), use_container_width=True)
+# 5. Compare foods
+with st.expander("🥗 Compare foods"):
+    try:
+        comparisons = compare_foods(user_id)
+
+        if comparisons:
+            comparison_df = pd.DataFrame(comparisons)
+            st.dataframe(comparison_df, use_container_width=True)
+        else:
+            st.info("No food comparison data available.")
 
     except Exception as e:
-        st.error(f"Could not read the CSV: {e}")
-        df = None
+        st.error(f"Could not compare foods: {e}")
 
-# 3. Analyze button
-st.header("🔎 Meal analysis")
+# 6. User patterns
+with st.expander("📊 User glucose patterns"):
+    try:
+        patterns = analyze_user_patterns(user_id)
+        st.json(patterns)
 
-if st.button("Analyze my meal", type="primary"):
-    if not meal_name.strip():
-        st.warning("Please enter a food name.")
-    elif uploaded_file is None:
-        st.warning("Please upload a CGM CSV file.")
-    elif df is None or df.empty:
-        st.warning("Please upload a valid CSV file.")
+    except Exception as e:
+        st.error(f"Could not analyze user patterns: {e}")
+
+# 7. Ask Foundry Agent
+st.header("🤖 Ask GlucoWise AI")
+
+question = st.text_input(
+    "Your question",
+    placeholder="e.g. How did my glucose change after this meal?",
+)
+
+if st.button("Ask AI", type="primary"):
+    if not question.strip():
+        st.warning("Please enter a question.")
+
     else:
-        st.session_state["meal_name"] = meal_name.strip()
-        st.session_state["meal_time"] = str(meal_time)
-        st.session_state["cgm_data"] = df
-        st.success("Meal and CGM data saved for this session!")
-
-# 4. Glucose chart and output
-if "cgm_data" in st.session_state:
-    st.subheader("📈 Glucose over time")
-
-    chart_df = st.session_state["cgm_data"].sort_values(time_col)
-
-    fig = px.line(
-        chart_df,
-        x=time_col,
-        y=glucose_col,
-        markers=True,
-        labels={
-            time_col: "Time",
-            glucose_col: "Glucose (mg/dL)",
-        },
-        title="Uploaded CGM readings",
-    )
-    fig.update_layout(hovermode="x unified")
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader("📋 Meal details")
-    st.write("**Food:**", st.session_state["meal_name"])
-    st.write("**Meal time:**", st.session_state["meal_time"])
-
-    st.subheader("🤖 Ask AI about your meal")
-
-    question = st.text_input(
-        "Your question",
-        placeholder="e.g. What happened to my glucose after this meal?",
-    )
-
-    if st.button("Ask AI"):
-        if not question.strip():
-            st.warning("Please enter a question.")
-        else:
-            st.info(
-                "AI integration is not connected yet. "
-                "This section will display the answer after "
-                "the Microsoft Foundry integration is added."
+        try:
+            endpoint = (
+                "https://whb050704-4696-resource.services.ai.azure.com"
+                "/api/projects/whb050704-4696"
             )
+            agent_name = "GlucoWise-Agent"
+
+            # Prepare verified results from the local analysis module.
+            if result is not None:
+                analysis_context = (
+                    f"Baseline: {result.get('baseline')} mg/dL\n"
+                    f"Peak: {result.get('peak')} mg/dL\n"
+                    f"Rise: {result.get('rise')} mg/dL\n"
+                    f"Unit: {result.get('unit', 'mg/dL')}\n"
+                    f"Data type: {result.get('data_type', 'simulated')}"
+                )
+            else:
+                analysis_context = (
+                    "No glucose metrics are available for this meal. "
+                    "Do not invent missing values."
+                )
+
+            prompt = f"""
+You are GlucoWise, an assistant that helps users understand
+continuous glucose monitoring (CGM) data.
+
+All data in this demo are simulated, not real medical measurements.
+Explain results carefully and do not give a medical diagnosis.
+Never invent missing glucose measurements.
+
+Selected user: {user_id}
+Food: {selected_meal.get('food')}
+Meal time: {selected_meal.get('timestamp')}
+Meal ID: {meal_id}
+
+Analysis results:
+{analysis_context}
+
+User question:
+{question}
+
+Answer clearly and explain the numbers in plain language.
+If the analysis results are missing, state that limitation.
+"""
+
+            with st.spinner("GlucoWise AI is thinking..."):
+                with DefaultAzureCredential() as credential:
+                    with AIProjectClient(
+                        endpoint=endpoint,
+                        credential=credential,
+                        allow_preview=True,
+                    ) as project:
+                        openai_client = project.get_openai_client(
+                            agent_name=agent_name
+                        )
+
+                        response = openai_client.responses.create(
+                            input=prompt
+                        )
+
+            st.session_state["ai_answer"] = response.output_text
+
+        except Exception as e:
+            st.error(f"Foundry Agent request failed: {e}")
+
+if "ai_answer" in st.session_state:
+    st.subheader("💬 GlucoWise AI response")
+    st.markdown(st.session_state["ai_answer"])
