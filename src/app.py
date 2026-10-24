@@ -1,8 +1,12 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import datetime
+
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
+
+from local_db import init_db, save_meal, get_meals, delete_meal
 
 from glucose_analysis import (
     get_meal_history,
@@ -27,17 +31,87 @@ user_id = login_gate()
 st.title("📈 GlucoWise")
 st.caption("Understand how meals affect your glucose levels")
 
+
+user_id = st.selectbox(
+    "Select Demo User",
+    ["A", "B", "C"],
+)
+
+# Initialize local SQLite database
+init_db()
+
+# Add a new meal
+st.header("➕ Add a meal")
+
+with st.form("add_meal_form"):
+    meal_date = st.date_input("Meal date")
+    meal_time = st.time_input("Meal time")
+    food = st.text_input("Food name", placeholder="e.g. Chicken salad")
+    description = st.text_input("Description", placeholder="e.g. Lunch")
+    portion_g = st.number_input(
+        "Portion (g)", min_value=0.0, value=100.0, step=10.0
+    )
+    carbs_g = st.number_input(
+        "Carbohydrates (g)", min_value=0.0, value=0.0, step=5.0
+    )
+
+    submitted = st.form_submit_button("Save meal")
+
+    if submitted:
+        if not food.strip():
+            st.error("Please enter a food name.")
+        else:
+            timestamp = datetime.combine(
+                meal_date, meal_time
+            ).isoformat(timespec="minutes")
+
+            save_meal(
+                timestamp=timestamp,
+                food=food.strip(),
+                description=description.strip(),
+                portion_g=portion_g,
+                carbs_g=carbs_g,
+                demo_user=user_id,
+            )
+
+            st.success("Meal saved to SQLite!")
+            st.rerun()
+
+
+# Show meals saved in SQLite
+st.header("🗃️ My saved meals")
+
+saved_meals = get_meals(demo_user=user_id)
+
+if saved_meals:
+    saved_df = pd.DataFrame(saved_meals)
+    st.dataframe(
+        saved_df[
+            ["id", "timestamp", "food", "description", "portion_g", "carbs_g"]
+        ],
+        hide_index=True,
+        width="stretch",
+    )
+
+    meal_to_delete = st.selectbox(
+        "Select a meal to delete",
+        saved_meals,
+        format_func=lambda meal: (
+            f"{meal['food']} — {meal['timestamp']}"
+        ),
+    )
+
+    if st.button("Delete selected meal"):
+        delete_meal(meal_to_delete["id"], demo_user=user_id)
+        st.success("Meal deleted.")
+        st.rerun()
+else:
+    st.info("No saved meals yet. Add one using the form above.")
+
+
 st.info(
     "Demo mode: All glucose data shown here are simulated. "
     "This app does not provide medical advice."
-)
-
-# 1. Select user
-st.header("👤 Select user")
-
-user_id = st.selectbox(
-    "User",
-    ["A", "B", "C"],
 )
 
 # 2. Load meal history from the analysis module
@@ -53,7 +127,6 @@ try:
 except Exception as e:
     st.error(f"Could not load meal history: {e}")
     st.stop()
-
 
 def meal_label(meal):
     food = str(meal.get("food", "Unknown food"))
@@ -147,7 +220,7 @@ try:
             )
 
             fig.update_layout(hovermode="x unified")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         else:
             st.warning("The glucose curve has an unexpected data format.")
@@ -164,7 +237,7 @@ with st.expander("🥗 Compare foods"):
 
         if comparisons:
             comparison_df = pd.DataFrame(comparisons)
-            st.dataframe(comparison_df, use_container_width=True)
+            st.dataframe(comparison_df, width="stretch")
         else:
             st.info("No food comparison data available.")
 
