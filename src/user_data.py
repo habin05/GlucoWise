@@ -1,13 +1,14 @@
-"""업로드한 CGM·식사 기록을 SQLite에 누적 저장하고, 분석 함수용 DataFrame으로 변환한다.
 
-흐름
-    CGM CSV 업로드 -> parse_cgm_csv() -> save_cgm()            (SQLite cgm_readings)
-    식사 저장       -> local_db.save_meal()                    (SQLite meals, 기존 테이블 그대로)
-    분석 직전       -> with_user_data(base_cgm, base_meals, user) -> (cgm, meals)
-                      -> glucose_analysis의 모든 함수에 cgm=..., meals=... 로 전달
+"""Accumulate uploaded CGM and meal records in SQLite and convert them into DataFrames for analysis.
 
-혈당 값은 업로드 파일의 숫자를 그대로 쓴다. 이 모듈은 어떤 값도 만들어 내지 않는다.
-CSV 샘플(base)과 DB 데이터는 user_id 기준으로 합쳐진다.
+Workflow:
+    Upload CGM CSV -> parse_cgm_csv() -> save_cgm()           (SQLite cgm_readings)
+    Save meal      -> local_db.save_meal()                   (SQLite meals, existing table unchanged)
+    Before analysis -> with_user_data(base_cgm, base_meals, user) -> (cgm, meals)
+                       -> Pass cgm=..., meals=... to all glucose_analysis functions
+
+Glucose values are taken directly from the uploaded file. This module does not generate any values.
+Sample CSV data (base) and database records are combined based on user_id.
 """
 from __future__ import annotations
 
@@ -15,14 +16,14 @@ from contextlib import closing
 
 import pandas as pd
 
-try:  # `src.user_data`(패키지)와 `src/`에서 직접 실행 모두 지원
+try:  # Support both `src.user_data` package imports and direct execution from `src/`
     from . import local_db
     from .normalization import normalize_food
 except ImportError:  # pragma: no cover
     import local_db
     from normalization import normalize_food
 
-TIMEZONE = "America/Los_Angeles"  # data_generator.TIMEZONE와 동일해야 함
+TIMEZONE = "America/Los_Angeles"  # Must match data_generator.TIMEZONE
 BASELINE_WINDOW = pd.Timedelta(minutes=15)
 PEAK_WINDOW = pd.Timedelta(hours=2)
 
@@ -32,7 +33,7 @@ GLUCOSE_HINTS = ("glucose", "sgv", "mg/dl", "mg_dl", "혈당", "value")
 
 # ----------------------------------------------------------------- tables
 def init_user_tables() -> None:
-    """meals 테이블(local_db.init_db)과 CGM 테이블을 만든다."""
+    """Create the meals table (via local_db.init_db) and the CGM table."""
     local_db.init_db()
     with closing(local_db.get_connection()) as conn, conn:
         conn.execute(
@@ -48,7 +49,7 @@ def init_user_tables() -> None:
 
 
 def reset_user(demo_user: str) -> None:
-    """시연 초기화: 이 사용자의 업로드 CGM과 식사 기록을 모두 지운다 (CSV 샘플은 그대로)."""
+    """Reset demo data: delete this user's uploaded CGM and meal records (sample CSV data remains)."""
     with closing(local_db.get_connection()) as conn, conn:
         conn.execute("DELETE FROM cgm_readings WHERE demo_user = ?", (demo_user,))
         conn.execute("DELETE FROM meals WHERE demo_user = ?", (demo_user,))
@@ -64,28 +65,29 @@ def _find_col(columns, hints, exclude=None):
 
 
 def parse_cgm_csv(source, tz: str = TIMEZONE) -> pd.DataFrame:
-    """CGM CSV(파일 경로 또는 업로드 파일 객체) -> DataFrame[time_utc, glucose_mg_dl].
+    """Convert a CGM CSV (file path or uploaded file object) into DataFrame[time_utc, glucose_mg_dl].
 
-    - 시간/혈당 컬럼은 이름에 포함된 단어(timestamp, time, glucose, 혈당 ...)로 찾는다.
-    - 시간대 표시가 없는 시간은 ``tz``의 현지 시간으로 본다. (식사 시간 입력도 같은 기준)
-    - 문제가 있으면 사용자에게 보여줄 한국어 메시지로 ValueError를 낸다.
+    - Finds time and glucose columns using keywords in their names (timestamp, time, glucose, etc.).
+    - Treats timestamps without timezone information as local times in ``tz``.
+      (Meal times are entered using the same timezone.)
+    - Raises ValueError with a user-facing English error message if a problem occurs.
     """
     try:
         raw = pd.read_csv(source)
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"CSV를 읽지 못했어요: {exc}") from exc
+        raise ValueError(f"Could not read the CSV file: {exc}") from exc
 
     t_col = _find_col(raw.columns, TIME_HINTS)
     g_col = _find_col(raw.columns, GLUCOSE_HINTS, exclude=t_col)
     if t_col is None or g_col is None:
-        raise ValueError(f"시간/혈당 컬럼을 찾지 못했어요. 파일의 컬럼: {list(raw.columns)}")
+        raise ValueError(f"Could not find the time and glucose columns. File columns: {list(raw.columns)}")
 
     text = raw[t_col].astype(str).str.strip()
     aware = text.str.contains(r"(?:Z|[+-]\d{2}:?\d{2})$", regex=True)
     if aware.all():
         times = pd.to_datetime(text, errors="coerce", utc=True)
     elif aware.any():
-        raise ValueError("시간대 표시가 있는 행과 없는 행이 섞여 있어요. 형식을 통일해 주세요.")
+        raise ValueError("Some timestamps include timezone information while others do not. Please use a consistent format.")
     else:
         times = pd.to_datetime(text, errors="coerce").dt.tz_localize(
             tz, ambiguous="NaT", nonexistent="shift_forward"
@@ -98,16 +100,16 @@ def parse_cgm_csv(source, tz: str = TIMEZONE) -> pd.DataFrame:
     out = out.drop_duplicates("time_utc").sort_values("time_utc").reset_index(drop=True)
 
     if out.empty:
-        raise ValueError("읽을 수 있는 (시간, 혈당) 행이 없어요.")
+        raise ValueError("No valid rows containing both time and glucose values were found.")
     if out["glucose_mg_dl"].median() < 35:
-        raise ValueError("혈당 값이 mmol/L로 보여요. mg/dL 단위 파일을 올려 주세요.")
+        raise ValueError("The glucose values appear to be in mmol/L. Please upload a file with values in mg/dL.")
     if not out["glucose_mg_dl"].between(20, 600).all():
-        raise ValueError("혈당 값이 20~600 mg/dL 범위를 벗어난 행이 있어요. 파일을 확인해 주세요.")
+        raise ValueError("Some glucose values are outside the range of 20–600 mg/dL. Please check the file.")
     return out
 
 
 def save_cgm(demo_user: str, readings: pd.DataFrame) -> int:
-    """parse_cgm_csv 결과를 저장한다. 같은 시각의 값은 새 값으로 덮어쓴다. 저장한 행 수 반환."""
+    """Save the result of parse_cgm_csv. Overwrite values with the same timestamp and return the number of rows saved."""
     rows = [
         (demo_user, t.tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%S+00:00"), float(g))
         for t, g in zip(readings["time_utc"], readings["glucose_mg_dl"])
@@ -121,7 +123,7 @@ def save_cgm(demo_user: str, readings: pd.DataFrame) -> int:
 
 
 def cgm_summary(demo_user: str) -> dict:
-    """저장된 CGM 요약 (UI 표시용): 행 수, 첫/마지막 시각(현지), 일수."""
+    """Return a summary of saved CGM data for UI display: row count, first/last timestamps (local), and number of days."""
     df = load_cgm_df(demo_user)
     if df.empty:
         return {"rows": 0, "first": None, "last": None, "days": 0}
@@ -136,7 +138,7 @@ def cgm_summary(demo_user: str) -> dict:
 
 # ------------------------------------------- DB -> analysis DataFrames
 def load_cgm_df(demo_user: str) -> pd.DataFrame:
-    """DB의 CGM을 cgm.csv와 같은 컬럼(user_id, timestamp, glucose_mg_dl) + UTC ``time``으로."""
+    """Convert DB CGM data to the same columns as cgm.csv (user_id, timestamp, glucose_mg_dl), plus UTC ``time``."""
     with closing(local_db.get_connection()) as conn:
         rows = conn.execute(
             "SELECT time_utc, glucose_mg_dl FROM cgm_readings WHERE demo_user = ? ORDER BY time_utc",
@@ -154,9 +156,9 @@ def load_cgm_df(demo_user: str) -> pd.DataFrame:
 
 
 def meals_df(demo_user: str) -> pd.DataFrame:
-    """meals 테이블(local_db)의 식사를 meals.csv와 같은 컬럼 + UTC ``time``으로.
+    """Convert meals from the local_db meals table to the same columns as meals.csv, plus UTC ``time``.
 
-    meal_id는 ``db_<id>``. 사진처럼 섭취량을 모르면 primary_portion_g는 NaN이다.
+    meal_id is ``db_<id>``. If portion size is unknown (e.g., from a photo), primary_portion_g is NaN.
     """
     records = []
     for row in local_db.get_meals(demo_user=demo_user):
@@ -187,9 +189,10 @@ def meals_df(demo_user: str) -> pd.DataFrame:
 
 
 def with_user_data(base_cgm: pd.DataFrame, base_meals: pd.DataFrame, demo_user: str):
-    """CSV 샘플(base)에 이 사용자의 DB 데이터를 합쳐 (cgm, meals)로 돌려준다.
+    """Combine sample CSV data (base) with this user's DB records and return (cgm, meals).
 
-    같은 날짜의 CGM이 DB에 있으면 그 날의 CSV 샘플 CGM은 제외하고 업로드 값을 쓴다.
+    If DB CGM data exists for a date, the sample CSV CGM data for that date is excluded
+    and the uploaded values are used instead.
     """
     db_cgm = load_cgm_df(demo_user)
     db_meals = meals_df(demo_user)
@@ -223,14 +226,20 @@ def meal_status(cgm: pd.DataFrame, meals: pd.DataFrame, user_id: str) -> dict:
         n_post = int(((cgm_time >= t) & (cgm_time <= t + PEAK_WINDOW)).sum())
         insufficient = n_pre < MIN_PRE_READINGS or n_post < MIN_POST_READINGS
         if n_pre < MIN_PRE_READINGS:
-            notes.append(f"식사 전 15분의 CGM 값이 {n_pre}개뿐이라 계산하지 않았어요. (최소 {MIN_PRE_READINGS}개)")
+            notes.append(
+                f"Not calculated: only {n_pre} CGM reading(s) in the 15 minutes before the meal "
+                f"(minimum {MIN_PRE_READINGS})."
+            )
         if n_post < MIN_POST_READINGS:
-            notes.append(f"식사 후 2시간 안의 CGM 값이 {n_post}개뿐이라 계산하지 않았어요. (최소 {MIN_POST_READINGS}개)")
+            notes.append(
+                f"Not calculated: only {n_post} CGM reading(s) within 2 hours after the meal "
+                f"(minimum {MIN_POST_READINGS})."
+            )
         if not insufficient and not cgm_time.empty and cgm_time.max() < t + PEAK_WINDOW:
-            notes.append("식사 후 2시간 중 일부만 기록되어 있어, 결과가 불완전할 수 있어요.")
+            notes.append("Only part of the 2-hour period after the meal is recorded, so the result may be incomplete.")
         if i + 1 < len(times) and times[i + 1] - t <= PEAK_WINDOW:  # exactly 2 h counts as overlap
             gap = int((times[i + 1] - t).total_seconds() // 60)
-            notes.append(f"다음 식사가 {gap}분 뒤라 분석 구간이 겹쳐요.")
+            notes.append(f"The next meal is in {gap} minutes, so the analysis windows overlap.")
         if notes:
             out[meal_id] = {"insufficient": insufficient, "notes": notes}
     return out

@@ -1,3 +1,4 @@
+
 import base64
 import io
 import json
@@ -11,6 +12,8 @@ import plotly.express as px
 import streamlit as st
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
+from food_recognition import recognize_foods, normalize_food_text
+from normalization import normalize_food
 
 from agent_context import build_agent_prompt
 from glucose_analysis import (
@@ -46,7 +49,6 @@ AUTO_QUESTION = (
 
 st.set_page_config(page_title="GlucoWise", page_icon="📈", layout="wide")
 
-
 # ----------------------------------------------------------------- helpers
 @st.cache_data
 def load_base():
@@ -54,7 +56,7 @@ def load_base():
 
 
 def flash(message: str) -> None:
-    """st.rerun() 뒤에도 보이는 알림."""
+    """Notification that remains visible after st.rerun()."""
     st.session_state["flash"] = message
 
 
@@ -65,40 +67,6 @@ def ask_agent(agent_input):
         ) as project:
             client = project.get_openai_client(agent_name=AGENT_NAME)
             return client.responses.create(input=agent_input).output_text
-
-
-def recognize_foods(image_bytes: bytes, mime: str) -> list[str]:
-    """사진 속 음식 이름 목록. 확인 안 되는 재료는 추측하지 않도록 요청한다.
-
-    NOTE: Foundry 에이전트에 이미지를 data URL로 넘기는 방식(Responses API)이다.
-    팀에서 이미 성공한 호출 방식이 있으면 이 함수 안만 그 코드로 바꾸면 된다.
-    """
-    b64 = base64.b64encode(image_bytes).decode()
-    text = ask_agent(
-        [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": (
-                            "List the foods visible in this photo. Reply ONLY with a JSON "
-                            'array of short food names, e.g. ["white rice", "egg"]. '
-                            "Do not guess ingredients you cannot see."
-                        ),
-                    },
-                    {"type": "input_image", "image_url": f"data:{mime};base64,{b64}"},
-                ],
-            }
-        ]
-    )
-    match = re.search(r"\[.*?\]", text, re.S)
-    if not match:
-        return []
-    try:
-        return [str(x).strip() for x in json.loads(match.group(0)) if str(x).strip()]
-    except json.JSONDecodeError:
-        return []
 
 
 def meal_label(meal):
@@ -132,41 +100,41 @@ selected_meal, meal_id, result = None, None, None
 upload_round = st.session_state.setdefault("upload_round", 0)
 
 tab_in, tab_day, tab_pattern, tab_ai = st.tabs(
-    ["1. 데이터 입력", "2. 식사별 분석", "3. 누적 패턴", "4. AI 설명"]
+    ["1. Data Input", "2. Meal Analysis", "3. Historical Patterns", "4. AI Insights"]
 )
 
 # ============================================================ 1. input
 with tab_in:
-    st.subheader("① 하루치 CGM 파일")
+    st.subheader("① Daily CGM Data")
     summary = cgm_summary(user_id)
     if summary["rows"]:
         st.caption(
-            f"저장된 업로드 CGM: {summary['days']}일 · {summary['rows']}개 값 "
+            f"Uploaded CGM data: {summary['days']} days · {summary['rows']} readings "
             f"({summary['first'][:10]} ~ {summary['last'][:10]})"
         )
 
-    cgm_file = st.file_uploader("CGM CSV 업로드", type="csv", key=f"cgm_file_{upload_round}")
+    cgm_file = st.file_uploader("Upload CGM CSV", type="csv", key=f"cgm_file_{upload_round}")
     if cgm_file is not None:
         try:
             parsed = parse_cgm_csv(io.BytesIO(cgm_file.getvalue()))
             local = parsed["time_utc"].dt.tz_convert(TIMEZONE)
             st.write(
-                f"{len(parsed)}개 값 · {local.min():%Y-%m-%d %H:%M} ~ {local.max():%Y-%m-%d %H:%M}"
+                f"{len(parsed)} readings · {local.min():%Y-%m-%d %H:%M} ~ {local.max():%Y-%m-%d %H:%M}"
             )
-            if st.button("CGM 저장", key="save_cgm"):
+            if st.button("Save CGM Data", key="save_cgm"):
                 saved_n = save_cgm(user_id, parsed)
                 st.session_state["upload_round"] += 1
-                flash(f"CGM {saved_n}개 값을 저장했어요.")
+                flash(f"Saved {saved_n} CGM readings.")
                 st.rerun()
         except ValueError as exc:
             st.error(str(exc))
 
-    st.subheader("② 음식 사진과 식사 시간")
+    st.subheader("② Food Photos and Meal Times")
     default_day = (
         pd.Timestamp(summary["last"]).date() if summary["last"] else datetime.now().date()
     )
     photos = st.file_uploader(
-        "음식 사진 (여러 장 가능)",
+        "Upload Food Photos (multiple files allowed)",
         type=["jpg", "jpeg", "png"],
         accept_multiple_files=True,
         key=f"photos_{upload_round}",
@@ -174,48 +142,62 @@ with tab_in:
     if photos:
         keys = [f"{p.name}-{p.size}-{upload_round}" for p in photos]
 
-        if st.button("🤖 AI로 음식 인식", key="recognize"):
-            with st.spinner("사진 속 음식을 인식하는 중..."):
+        if st.button("🤖 Recognize Food with AI", key="recognize"):
+            with st.spinner("Recognizing food in your photos..."):
                 for p, k in zip(photos, keys):
                     try:
                         items = recognize_foods(p.getvalue(), p.type or "image/jpeg")
                     except Exception as exc:  # noqa: BLE001
-                        st.warning(f"{p.name}: 인식하지 못했어요 ({exc}). 직접 입력해 주세요.")
+                        st.warning(f"{p.name}: Could not recognize food ({exc}). Please enter it manually.")
                         continue
                     if items:
-                        st.session_state[f"main_{k}"] = items[0]
                         st.session_state[f"desc_{k}"] = ", ".join(items)
+                        st.session_state[f"ai_text_{k}"] = ", ".join(items)
+                        st.session_state[f"ai_label_{k}"] = "_".join(items)
 
         entries = []
         for p, k in zip(photos, keys):
             col_img, col_form = st.columns([1, 3])
             col_img.image(p.getvalue(), width=140)
             with col_form:
-                day = st.date_input("식사 날짜", value=default_day, key=f"date_{k}")
-                clock = st.time_input("식사 시간", value=dtime(12, 0), key=f"time_{k}")
-                main = st.text_input("주요 음식 (누적 비교 기준)", key=f"main_{k}")
-                desc = st.text_input("인식된 음식 전체 / 메모", key=f"desc_{k}")
-            entries.append({"day": day, "clock": clock, "main": main, "desc": desc})
+                day = st.date_input("Meal Date", value=default_day, key=f"date_{k}")
+                clock = st.time_input("Meal Time", value=dtime(12, 0), key=f"time_{k}")
+                desc = st.text_input("All Detected Foods / Notes", key=f"desc_{k}")
+            entries.append({"key": k, "day": day, "clock": clock, "desc": desc})
             st.divider()
 
-        if st.button("식사 기록 저장", type="primary", key="save_meals"):
-            if any(not e["main"].strip() for e in entries):
-                st.error("주요 음식 이름을 모두 입력해 주세요.")
+        if st.button("Save Meal Records", type="primary", key="save_meals"):
+            if any(not e["desc"].strip() for e in entries):
+                st.error("Please enter food information for all meals.")
             else:
-                for e in entries:
-                    save_meal(
-                        timestamp=datetime.combine(e["day"], e["clock"]).isoformat(timespec="minutes"),
-                        food=e["main"].strip(),
-                        description=e["desc"].strip(),
-                        portion_g=None,  # 사진만으로 섭취량을 확정하지 않음
-                        carbs_g=None,
-                        demo_user=user_id,
-                    )
-                st.session_state["upload_round"] += 1
-                flash(f"식사 {len(entries)}건을 저장했어요.")
-                st.rerun()
+                labels = []
+                try:
+                    with st.spinner("Normalizing food names..."):
+                        for e in entries:
+                            text = e["desc"].strip()
+                            ai_text = st.session_state.get(f"ai_text_{e['key']}")
+                            if ai_text is not None and text == ai_text:
+                                label = normalize_food(st.session_state[f"ai_label_{e['key']}"])
+                            else:
+                                label = normalize_food_text(text)
+                            labels.append(label)
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Food name normalization failed ({exc}). Nothing was saved; please try again.")
+                else:
+                    for e, label in zip(entries, labels):
+                        save_meal(
+                            timestamp=datetime.combine(e["day"], e["clock"]).isoformat(timespec="minutes"),
+                            food=label,
+                            description=e["desc"].strip(),
+                            portion_g=None,
+                            carbs_g=None,
+                            demo_user=user_id,
+                        )
+                    st.session_state["upload_round"] += 1
+                    flash(f"Saved {len(entries)} meal record(s).")
+                    st.rerun()
 
-    st.subheader("③ 저장된 식사")
+    st.subheader("③ Saved Meals")
     saved = get_meals(demo_user=user_id)
     if saved:
         st.dataframe(
@@ -225,22 +207,22 @@ with tab_in:
         )
         by_id = {m["id"]: m for m in saved}
         del_id = st.selectbox(
-            "삭제할 식사",
+            "Select a Meal to Delete",
             list(by_id),
             format_func=lambda i: f"{by_id[i]['food']} — {by_id[i]['timestamp']}",
         )
-        if st.button("선택한 식사 삭제"):
+        if st.button("Delete Selected Meal"):
             delete_meal(del_id, demo_user=user_id)
-            flash("식사를 삭제했어요.")
+            flash("Meal deleted.")
             st.rerun()
     else:
-        st.info("저장된 식사가 없어요. 위에서 사진과 시간을 입력해 저장하세요.")
+        st.info("No saved meals yet. Upload a food photo and enter the meal time above.")
 
-    with st.expander("⚠️ 시연 초기화"):
-        st.caption(f"'{user_id}' 계정의 업로드 CGM과 식사 기록을 모두 지웁니다. (CSV 샘플 데이터는 그대로)")
-        if st.checkbox("정말 지울게요", key="confirm_reset") and st.button("초기화 실행"):
+    with st.expander("⚠️ Reset Demo Data"):
+        st.caption(f"Delete all uploaded CGM data and meal records for account '{user_id}'. (Sample CSV data will remain.)")
+        if st.checkbox("I understand; delete my data", key="confirm_reset") and st.button("Reset Data"):
             reset_user(user_id)
-            flash("초기화했어요.")
+            flash("Data reset successfully.")
             st.rerun()
 
 # ======================================================= 2. per-meal view
@@ -251,16 +233,16 @@ with tab_day:
     meal_days = {pd.Timestamp(str(h["timestamp"])[:10]).date() for h in history}
     days = sorted(cgm_days | meal_days, reverse=True)
     if not days:
-        st.info("CGM과 식사 기록이 없어요. '데이터 입력' 탭에서 업로드하세요.")
+        st.info("No CGM data or meal records found. Upload your data in the 'Data Input' tab.")
     else:
-        day_sel = st.selectbox("날짜", days, format_func=str)
+        day_sel = st.selectbox("Date", days, format_func=str)
         day_cgm = user_cgm[local_times.dt.date == day_sel]
         day_meals = [h for h in history if str(h["timestamp"])[:10] == str(day_sel)]
 
         if day_cgm.empty:
             st.warning(
-                f"{day_sel}에는 CGM 데이터가 없어요. 식사는 기록돼 있지만 혈당을 계산할 수 없어요. "
-                "'데이터 입력' 탭에서 이 날짜의 CGM 파일을 업로드하세요."
+                f"No CGM data available for {day_sel}. Meals are recorded, but glucose cannot be calculated. "
+                "Upload the CGM file for this date in the 'Data Input' tab."
             )
         else:
             plot_df = pd.DataFrame(
@@ -290,19 +272,19 @@ with tab_day:
             st.plotly_chart(fig, width="stretch")
 
         if not day_meals:
-            st.info("이 날짜에는 식사 기록이 없어요.")
+            st.info("No meal records for this date.")
         else:
             warns = {k: v["notes"] for k, v in status.items()}
             st.dataframe(
                 pd.DataFrame(
                     [
                         {
-                            "시간": str(h["timestamp"])[11:16],
-                            "음식": str(h["food"]).replace("_", " "),
+                            "Time": str(h["timestamp"])[11:16],
+                            "Food": str(h["food"]).replace("_", " "),
                             "Baseline": None if h["meal_id"] in insufficient_ids else h["baseline"],
                             "Peak": None if h["meal_id"] in insufficient_ids else h["peak"],
                             "Rise": None if h["meal_id"] in insufficient_ids else h["rise"],
-                            "유의사항": " / ".join(warns.get(h["meal_id"], [])),
+                            "Notes": " / ".join(warns.get(h["meal_id"], [])),
                         }
                         for h in day_meals
                     ]
@@ -311,7 +293,7 @@ with tab_day:
                 width="stretch",
             )
 
-            selected_meal = st.selectbox("자세히 볼 식사", day_meals, format_func=meal_label)
+            selected_meal = st.selectbox("Select a Meal to View Details", day_meals, format_func=meal_label)
             meal_id = selected_meal["meal_id"]
             result = (
                 None
@@ -320,12 +302,12 @@ with tab_day:
             )
 
             if result is None:
-                st.warning("이 식사는 분석 구간에 CGM 데이터가 부족해 계산할 수 없어요.")
+                st.warning("There is not enough CGM data in the analysis window for this meal.")
             else:
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Baseline", f"{result['baseline']:.1f} mg/dL")
                 c2.metric("Peak", f"{result['peak']:.1f} mg/dL")
-                c3.metric("Glucose rise", f"{result['rise']:+.1f} mg/dL")
+                c3.metric("Glucose Rise", f"{result['rise']:+.1f} mg/dL")
                 st.caption(
                     "Baseline: average glucose during the 15 minutes before the meal. "
                     "Peak: maximum glucose within 2 hours after the meal. "
@@ -340,7 +322,7 @@ with tab_day:
                     y="glucose_mg_dl",
                     markers=True,
                     labels={"minutes_from_meal": "Minutes from meal", "glucose_mg_dl": "Glucose (mg/dL)"},
-                    title="Glucose curve around the meal",
+                    title="Glucose Curve Around the Meal",
                 )
                 fig2.add_vline(x=0, line_dash="dash", annotation_text="Meal")
                 fig2.update_layout(hovermode="x unified")
@@ -352,39 +334,37 @@ with tab_pattern:
     skipped = [h for h in history if h["meal_id"] in insufficient_ids or h["rise"] is None]
     if skipped:
         st.warning(
-            f"CGM 데이터가 없어 분석에서 제외된 식사 {len(skipped)}건: "
+            f"{len(skipped)} meal record(s) excluded from analysis due to missing CGM data: "
             + ", ".join(f"{str(h['food']).replace('_', ' ')} ({str(h['timestamp'])[:16].replace('T', ' ')})" for h in skipped)
         )
     if not comparisons:
-        st.info("비교할 식사 기록이 아직 없어요.")
+        st.info("No meal records available for comparison yet.")
     else:
         comp_df = pd.DataFrame(comparisons)
-        comp_df["표본"] = comp_df["meal_count"].map(lambda n: "적음 (3회 미만)" if n < 3 else "")
+        comp_df["Sample Size"] = comp_df["meal_count"].map(lambda n: "Small (fewer than 3 meals)" if n < 3 else "")
         st.dataframe(comp_df, hide_index=True, width="stretch")
         bar = px.bar(
             comp_df,
             x="food",
             y="average_rise_mg_dl",
             text="meal_count",
-            labels={"food": "Food", "average_rise_mg_dl": "Average rise (mg/dL)"},
-            title="Average glucose rise by food (text = number of meals)",
+            labels={"food": "Food", "average_rise_mg_dl": "Average Rise (mg/dL)"},
+            title="Average Glucose Rise by Food (text = number of meals)",
         )
         st.plotly_chart(bar, width="stretch")
         st.caption(
-            "식사량, 반찬, 운동, 수면 등 여러 요인이 혈당에 영향을 줄 수 있어, "
-            "이 표는 기록에서 관찰된 경향일 뿐 특정 음식이 원인이라는 뜻이 아닙니다."
+            "Meal size, side dishes, exercise, sleep, and other factors can affect glucose levels. "
+            "This table shows observed patterns in your records and does not mean that a specific food caused the response."
         )
-
-# ============================================================== 4. AI
 
 # ============================================================== 4. AI
 with tab_ai:
     st.caption(
-        "AI는 Python이 계산한 결과를 설명합니다. "
-        "혈당 수치는 현재 선택된 사용자의 기록을 기준으로 합니다."
+        "AI explains results calculated by Python. "
+        "Glucose values are based on the currently selected user's records."
     )
 
-    # 사용자 계정이 바뀌면 이전 대화가 섞이지 않도록 초기화
+    # Reset conversation when the user account changes
     if st.session_state.get("chat_user_id") != user_id:
         st.session_state["chat_user_id"] = user_id
         st.session_state["chat_messages"] = []
@@ -395,23 +375,23 @@ with tab_ai:
     with col1:
         st.subheader("💬 GlucoWise AI")
     with col2:
-        if st.button("대화 초기화", key="clear_ai_chat"):
+        if st.button("Clear Conversation", key="clear_ai_chat"):
             st.session_state["chat_messages"] = []
             st.rerun()
 
-    # 이전 대화 표시
+    # Display previous messages
     for message in st.session_state["chat_messages"]:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # 자동 인사이트 버튼도 유지
+    # Keep the automatic insights button
     auto_clicked = st.button(
-        "📊 자동 인사이트 요약",
+        "📊 Summarize Automatic Insights",
         key="auto_chat_insight",
     )
 
     question = st.chat_input(
-        "예: 흰쌀밥을 먹은 날의 혈당 변화를 설명해 줘",
+        "e.g., Explain glucose changes on days I ate white rice",
         key="ai_chat_input",
     )
 
@@ -419,7 +399,7 @@ with tab_ai:
         q = question.strip() if question else AUTO_QUESTION
 
         if q:
-            # 현재 질문을 추가하기 전에 과거 대화 일부를 가져옴
+            # Get some previous messages before adding the current question
             previous_messages = st.session_state["chat_messages"][-8:]
 
             history_text = "\n".join(
@@ -430,7 +410,7 @@ with tab_ai:
 
             prefix = f"(Selected meal: {meal_id}) " if meal_id else ""
 
-            # 기존 Python 혈당 분석 결과를 사용하는 프롬프트
+            # Use existing Python glucose analysis results in the prompt
             data_prompt = build_agent_prompt(
                 user_id,
                 prefix + q,
@@ -438,7 +418,7 @@ with tab_ai:
                 meals=meals_ok,
             ).replace("NaN", "null")
 
-            # 이전 대화와 현재 질문을 함께 AI에 전달
+            # Send previous conversation and current question to the AI
             prompt = f"""
 You are continuing a GlucoWise conversation.
 
@@ -453,7 +433,7 @@ Current GlucoWise request and data:
 {data_prompt}
 """
 
-            # 사용자 메시지 표시 및 기록
+            # Display and save the user's message
             st.session_state["chat_messages"].append(
                 {"role": "user", "content": q}
             )
@@ -474,4 +454,3 @@ Current GlucoWise request and data:
 
             except Exception as exc:
                 st.error(f"Foundry Agent request failed: {exc}")
-
