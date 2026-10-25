@@ -1,4 +1,5 @@
 import os
+import json
 
 import streamlit as st
 import pandas as pd
@@ -19,6 +20,9 @@ from glucose_analysis import (
 )
 from agent_context import build_agent_prompt
 from auth_db import login_gate
+import upload_store
+from cgm_import import parse_cgm_csv, CgmImportError, DEFAULT_TZ
+from meal_analysis import summarize_by_food
 
 # Test switch: run with  GLUCOWISE_MOCK=1  to skip Azure and return a fake answer.
 # Off by default, so a normal run (or a push) can never ship mock answers.
@@ -45,6 +49,7 @@ if USE_MOCK:
 
 # Initialize local SQLite database
 init_db()
+upload_store.init_db()
 
 # Add a new meal
 st.header("➕ Add a meal")
@@ -102,6 +107,7 @@ if saved_meals:
     meal_to_delete = st.selectbox(
         "Select a meal to delete",
         saved_meals,
+
         format_func=lambda meal: (
             f"{meal['food']} — {meal['timestamp']}"
         ),
@@ -114,12 +120,151 @@ if saved_meals:
 else:
     st.info("No saved meals yet. Add one using the form above.")
 
+# ---- P0: upload CGM CSV and log meals (stored in data/user_uploads.db) ----
+st.header("Upload CGM data and log meals")
+st.caption(
+    "Uploaded data is stored separately from the demo CSVs. "
+    "All values are still treated as simulated demo data. Not medical advice."
+)
+
+# Show the result of the last upload / meal save (kept across st.rerun)
+_last_upload = st.session_state.pop("last_upload", None)
+if _last_upload:
+    saved = _last_upload["saved"]
+    st.success(
+        f"CGM file saved: {saved['readings_new']} new, "
+        f"{saved['readings_updated']} updated, "
+        f"{saved['readings_unchanged']} unchanged, "
+        f"{saved['rows_excluded']} excluded."
+    )
+    for line in _last_upload["lines"]:
+        st.write(line)
+    if not _last_upload["excluded"].empty:
+        st.dataframe(_last_upload["excluded"], hide_index=True, width="stretch")
+
+_last_meal = st.session_state.pop("last_meal_save", None)
+if _last_meal:
+    st.success(
+        f"Meal {_last_meal['action']}: {', '.join(_last_meal['foods'])} "
+        f"at {_last_meal['meal_time']}"
+    )
+
+st.subheader("Upload a CGM CSV")
+st.caption(
+    "Required columns: timestamp (ISO 8601, e.g. 2026-10-20T07:45:00-07:00) "
+    "and glucose_mg_dl. Times without a UTC offset are read as "
+    f"{DEFAULT_TZ}. Unusable rows are excluded and reported."
+)
+cgm_file = st.file_uploader("CGM CSV file", type=["csv"], key="cgm_csv_upload")
+if cgm_file is not None and st.button("Import CGM file", key="import_cgm_btn"):
+    try:
+        import_result = parse_cgm_csv(cgm_file)
+        if not import_result.is_usable:
+            st.error("No usable rows in this file.")
+            for line in import_result.report_lines():
+                st.write(line)
+        else:
+            saved = upload_store.save_cgm_upload(
+                user_id, import_result, filename=cgm_file.name
+            )
+            st.session_state["last_upload"] = {
+                "saved": saved,
+                "lines": import_result.report_lines(),
+                "excluded": import_result.excluded_frame(),
+            }
+            st.rerun()
+    except CgmImportError as e:
+        st.error(str(e))
+    except ValueError as e:
+        st.error(f"Could not save the file: {e}")
+
+st.subheader("Log a meal for analysis")
+with st.form("log_meal_form"):
+    um_date = st.date_input("Meal date", key="um_date")
+    um_time = st.time_input("Meal time", key="um_time")
+    um_foods = st.text_input(
+        "Foods (comma separated)",
+        placeholder="e.g. white rice, grilled chicken, kimchi",
+        key="um_foods",
+    )
+    um_submit = st.form_submit_button("Save meal for analysis")
+    if um_submit:
+        foods_list = [f.strip() for f in um_foods.split(",") if f.strip()]
+        if not foods_list:
+            st.error("Please enter at least one food.")
+        else:
+            try:
+                st.session_state["last_meal_save"] = upload_store.save_meal(
+                    user_id,
+                    datetime.combine(
+                        um_date, um_time.replace(second=0, microsecond=0)
+                    ),
+                    foods_list,
+                )
+                st.rerun()
+            except ValueError as e:
+                st.error(f"Could not save the meal: {e}")
+
+# Uploaded meals with their cached per-meal analysis
+uploaded_meals = upload_store.list_meals(user_id)
+uploaded_by_id = {
+    f"{user_id}_UP{m['meal_id']:05d}": m for m in uploaded_meals
+}
+
+if uploaded_meals:
+    st.subheader("Per-meal results (uploaded meals)")
+    st.caption(
+        "Each meal has one response for the whole meal. It is not split among "
+        "foods and does not show that a food caused the change."
+    )
+    result_rows = []
+    for m in uploaded_meals:
+        result_rows.append(
+            {
+                "meal_time": m["meal_time"],
+                "foods": ", ".join(m["foods"]),
+                "status": m["status"],
+                "baseline_mg_dl": m["baseline_mg_dl"],
+                "peak_mg_dl": m["peak_mg_dl"],
+                "rise_mg_dl": m["rise_mg_dl"],
+                "readings_before": m["pre_meal_readings"],
+                "readings_after": m["post_meal_readings"],
+                "overlap_caution": "yes" if m["warnings"] else "",
+            }
+        )
+    st.dataframe(pd.DataFrame(result_rows), hide_index=True, width="stretch")
+
+    to_delete = st.selectbox(
+        "Select an uploaded meal to delete",
+        uploaded_meals,
+        format_func=lambda m: f"{', '.join(m['foods'])} - {m['meal_time']}",
+        key="delete_uploaded_meal_select",
+    )
+    if st.button("Delete selected uploaded meal", key="delete_uploaded_meal_btn"):
+        upload_store.delete_meal(user_id, to_delete["meal_id"])
+        st.rerun()
+
+with st.expander("Upload history"):
+    _hist = upload_store.get_upload_history(user_id, limit=10)
+    if _hist:
+        st.dataframe(
+            pd.DataFrame(_hist)[
+                ["upload_id", "filename", "uploaded_at", "rows_read",
+                 "rows_imported", "rows_excluded", "readings_new",
+                 "readings_updated", "readings_unchanged"]
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+    else:
+        st.info("No uploads yet.")
 
 # 2. Load meal history from the analysis module
 st.header("🍽️ Meal history")
 
 try:
-    history = get_meal_history(user_id)
+    cgm_all, meals_all = upload_store.combined_frames(user_id)
+    history = get_meal_history(user_id, cgm=cgm_all, meals=meals_all)
 
     if not history:
         st.warning("No meal records found for this user.")
@@ -129,6 +274,28 @@ except Exception as e:
     st.error(f"Could not load meal history: {e}")
     st.stop()
 
+def _local_date(ts):
+    return pd.to_datetime(ts, utc=True).tz_convert(DEFAULT_TZ).date()
+
+
+all_dates = sorted({_local_date(h["timestamp"]) for h in history})
+picked_dates = st.multiselect(
+    "Dates to show",
+    all_dates,
+    default=all_dates,
+    format_func=lambda d: d.isoformat(),
+)
+if picked_dates:
+    history = [h for h in history if _local_date(h["timestamp"]) in picked_dates]
+else:
+    st.info("No date selected; showing all dates.")
+
+# Old comparison functions have no "enough data" gate, so leave out uploaded
+# meals that meal_analysis marked insufficient_data.
+_insufficient_ids = {
+    mid for mid, m in uploaded_by_id.items() if m["status"] != "ok"
+}
+meals_cmp = meals_all[~meals_all["meal_id"].isin(_insufficient_ids)]
 
 def meal_label(meal):
     food = str(meal.get("food", "Unknown food"))
@@ -139,7 +306,8 @@ def meal_label(meal):
 selected_meal = st.selectbox(
     "Choose a meal",
     history,
-    format_func=meal_label,
+    format_func=lambda m: meal_label(m)
+    + (" [uploaded]" if m["meal_id"] in uploaded_by_id else " [generated]"),
 )
 
 meal_id = selected_meal["meal_id"]
@@ -147,17 +315,28 @@ meal_id = selected_meal["meal_id"]
 st.write("**Food:**", str(selected_meal.get("food", "Unknown")).replace("_", " ").title())
 st.write("**Meal time:**", selected_meal.get("timestamp", "Unknown"))
 st.write("**Description:**", selected_meal.get("description", "No description available"))
-st.write("**Portion:**", f"{selected_meal.get('primary_portion_g', 'N/A')} g")
+_portion = selected_meal.get("primary_portion_g")
+st.write(
+    "**Portion:**",
+    "N/A" if _portion is None or pd.isna(_portion) else f"{_portion} g",
+)
 
 # 3. Get glucose analysis
 st.header("🔎 Glucose analysis")
 
 try:
-    result = get_meal_glucose(user_id, meal_id)
+    insufficient_note = None
+    _info = uploaded_by_id.get(meal_id)
+    if _info is not None and _info["status"] != "ok":
+        result = None
+        insufficient_note = _info["message"]
+    else:
+        result = get_meal_glucose(user_id, meal_id, cgm=cgm_all, meals=meals_all)
 
     if result is None:
         st.warning(
-            "No CGM data is available for this meal's analysis window."
+            insufficient_note
+            or "No CGM data is available for this meal's analysis window."
         )
     else:
         baseline = result.get("baseline")
@@ -189,11 +368,17 @@ except Exception as e:
     st.error(f"Could not calculate meal glucose metrics: {e}")
     result = None
 
+_info = uploaded_by_id.get(meal_id)
+if _info is not None:
+    for w in _info["warnings"]:
+        st.warning(w["message"])
+    st.caption(_info["interpretation_note"])
+
 # 4. Glucose curve
 st.subheader("📈 Glucose after the meal")
 
 try:
-    curve = get_glucose_curve(user_id, meal_id)
+    curve = get_glucose_curve(user_id, meal_id, cgm=cgm_all, meals=meals_all)
 
     if curve:
         curve_df = pd.DataFrame(curve)
@@ -235,7 +420,7 @@ except Exception as e:
 # 5. Compare foods
 with st.expander("🥗 Compare foods"):
     try:
-        comparisons = compare_foods(user_id)
+        comparisons = compare_foods(user_id, cgm=cgm_all, meals=meals_cmp)
 
         if comparisons:
             comparison_df = pd.DataFrame(comparisons)
@@ -246,11 +431,25 @@ with st.expander("🥗 Compare foods"):
     except Exception as e:
         st.error(f"Could not compare foods: {e}")
 
+with st.expander("Foods in uploaded meals (whole-meal averages)"):
+    if uploaded_meals:
+        st.caption(
+            "Each food is listed with the average of the meals that contained "
+            "it. This is not the effect of the food itself."
+        )
+        st.dataframe(
+            pd.DataFrame(summarize_by_food(uploaded_meals)),
+            hide_index=True,
+            width="stretch",
+        )
+    else:
+        st.info("No uploaded meals yet.")
+
 # 6. User patterns
 with st.expander("📊 User glucose patterns"):
     try:
-        patterns = analyze_user_patterns(user_id)
-        st.json(patterns)
+        patterns = analyze_user_patterns(user_id, cgm=cgm_all, meals=meals_cmp)
+                st.json(json.loads(json.dumps(patterns), parse_constant=lambda c: None))
 
     except Exception as e:
         st.error(f"Could not analyze user patterns: {e}")
