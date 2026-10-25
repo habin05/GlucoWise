@@ -26,7 +26,6 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "glucowise_users.db"
 VALID_USER_IDS = ("A", "B", "C", "D", "E", "F")
 ITERATIONS = 200_000
 MIN_PASSWORD_LEN = 6
-F
 
 def _connect(db_path=None) -> sqlite3.Connection:
     path = Path(db_path) if db_path else DB_PATH
