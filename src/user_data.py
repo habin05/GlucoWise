@@ -208,27 +208,43 @@ def with_user_data(base_cgm: pd.DataFrame, base_meals: pd.DataFrame, demo_user: 
     return cgm, meals
 
 
-# ------------------------------------------------------------- warnings
-def check_meals(cgm: pd.DataFrame, meals: pd.DataFrame, user_id: str) -> dict:
-    """Return meal-specific notes as {meal_id: [message, ...]}. Meals without issues are omitted."""
+MIN_PRE_READINGS = 2   # demo threshold, not a medical standard
+MIN_POST_READINGS = 6  # demo threshold, not a medical standard
+
+
+def meal_status(cgm: pd.DataFrame, meals: pd.DataFrame, user_id: str) -> dict:
+    """{meal_id: {"insufficient": bool, "notes": [str]}} for meals that need a note."""
     user_cgm = cgm[cgm["user_id"] == user_id]
+    cgm_time = user_cgm["time"]
     user_meals = meals[meals["user_id"] == user_id].sort_values("time")
     ids, times = list(user_meals["meal_id"]), list(user_meals["time"])
 
-    out: dict[str, list[str]] = {}
+    out: dict[str, dict] = {}
     for i, (meal_id, t) in enumerate(zip(ids, times)):
         notes = []
-        before = user_cgm[(user_cgm["time"] >= t - BASELINE_WINDOW) & (user_cgm["time"] < t)]
-        after = user_cgm[(user_cgm["time"] >= t) & (user_cgm["time"] <= t + PEAK_WINDOW)]
-        if before.empty:
-            notes.append("Unable to calculate: no CGM data available for the 15 minutes before the meal.")
-        if after.empty:
-            notes.append("Unable to calculate: no CGM data available within 2 hours after the meal.")
-        elif user_cgm["time"].max() < t + PEAK_WINDOW:
+        n_pre = int(((cgm_time >= t - BASELINE_WINDOW) & (cgm_time < t)).sum())
+        n_post = int(((cgm_time >= t) & (cgm_time <= t + PEAK_WINDOW)).sum())
+        insufficient = n_pre < MIN_PRE_READINGS or n_post < MIN_POST_READINGS
+        if n_pre < MIN_PRE_READINGS:
+            notes.append(
+                f"Not calculated: only {n_pre} CGM reading(s) in the 15 minutes before the meal "
+                f"(minimum {MIN_PRE_READINGS})."
+            )
+        if n_post < MIN_POST_READINGS:
+            notes.append(
+                f"Not calculated: only {n_post} CGM reading(s) within 2 hours after the meal "
+                f"(minimum {MIN_POST_READINGS})."
+            )
+        if not insufficient and not cgm_time.empty and cgm_time.max() < t + PEAK_WINDOW:
             notes.append("Only part of the 2-hour period after the meal is recorded, so the result may be incomplete.")
-        if i + 1 < len(times) and times[i + 1] - t < PEAK_WINDOW:
+        if i + 1 < len(times) and times[i + 1] - t <= PEAK_WINDOW:  # exactly 2 h counts as overlap
             gap = int((times[i + 1] - t).total_seconds() // 60)
             notes.append(f"The next meal is in {gap} minutes, so the analysis windows overlap.")
         if notes:
-            out[meal_id] = notes
+            out[meal_id] = {"insufficient": insufficient, "notes": notes}
     return out
+
+
+def check_meals(cgm: pd.DataFrame, meals: pd.DataFrame, user_id: str) -> dict:
+    """{meal_id: [notes]} (kept so existing callers still work)."""
+    return {k: v["notes"] for k, v in meal_status(cgm, meals, user_id).items()}

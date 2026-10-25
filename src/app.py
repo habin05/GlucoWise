@@ -29,6 +29,7 @@ from user_data import (
     cgm_summary,
     check_meals,
     init_user_tables,
+    meal_status,
     parse_cgm_csv,
     reset_user,
     save_cgm,
@@ -91,6 +92,9 @@ user_id = login_gate()
 base_cgm, base_meals = load_base()
 cgm, meals = with_user_data(base_cgm, base_meals, user_id)
 history = get_meal_history(user_id, cgm=cgm, meals=meals)
+status = meal_status(cgm, meals, user_id)
+insufficient_ids = {k for k, v in status.items() if v["insufficient"]}
+meals_ok = meals[~meals["meal_id"].isin(insufficient_ids)]
 
 selected_meal, meal_id, result = None, None, None
 upload_round = st.session_state.setdefault("upload_round", 0)
@@ -270,16 +274,16 @@ with tab_day:
         if not day_meals:
             st.info("No meal records for this date.")
         else:
-            warns = check_meals(cgm, meals, user_id)
+            warns = {k: v["notes"] for k, v in status.items()}
             st.dataframe(
                 pd.DataFrame(
                     [
                         {
                             "Time": str(h["timestamp"])[11:16],
                             "Food": str(h["food"]).replace("_", " "),
-                            "Baseline": h["baseline"],
-                            "Peak": h["peak"],
-                            "Rise": h["rise"],
+                            "Baseline": None if h["meal_id"] in insufficient_ids else h["baseline"],
+                            "Peak": None if h["meal_id"] in insufficient_ids else h["peak"],
+                            "Rise": None if h["meal_id"] in insufficient_ids else h["rise"],
                             "Notes": " / ".join(warns.get(h["meal_id"], [])),
                         }
                         for h in day_meals
@@ -291,7 +295,11 @@ with tab_day:
 
             selected_meal = st.selectbox("Select a Meal to View Details", day_meals, format_func=meal_label)
             meal_id = selected_meal["meal_id"]
-            result = get_meal_glucose(user_id, meal_id, cgm=cgm, meals=meals)
+            result = (
+                None
+                if meal_id in insufficient_ids
+                else get_meal_glucose(user_id, meal_id, cgm=cgm, meals=meals)
+            )
 
             if result is None:
                 st.warning("There is not enough CGM data in the analysis window for this meal.")
@@ -322,8 +330,8 @@ with tab_day:
 
 # ===================================================== 3. accumulated
 with tab_pattern:
-    comparisons = compare_foods(user_id, cgm=cgm, meals=meals)
-    skipped = [h for h in history if h["rise"] is None]
+    comparisons = compare_foods(user_id, cgm=cgm, meals=meals_ok)
+    skipped = [h for h in history if h["meal_id"] in insufficient_ids or h["rise"] is None]
     if skipped:
         st.warning(
             f"{len(skipped)} meal record(s) excluded from analysis due to missing CGM data: "
@@ -407,7 +415,7 @@ with tab_ai:
                 user_id,
                 prefix + q,
                 cgm=cgm,
-                meals=meals,
+                meals=meals_ok,
             ).replace("NaN", "null")
 
             # Send previous conversation and current question to the AI
