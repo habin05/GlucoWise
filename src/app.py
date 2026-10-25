@@ -14,6 +14,7 @@ from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
 from food_recognition import recognize_foods, normalize_food_text
 from normalization import normalize_food
+from pubmed_search import search_pubmed
 
 from agent_context import build_agent_prompt
 from glucose_analysis import (
@@ -444,7 +445,17 @@ Current GlucoWise request and data:
             try:
                 with st.chat_message("assistant"):
                     with st.spinner("GlucoWise AI is thinking..."):
+                        
+                        if "pubmed" in q.lower():
+                            papers = search_pubmed(
+                                "sulforaphane glucose metabolism",
+                                max_results=3,
+                            )
+                            prompt += "\n\nPubMed results (JSON):\n"
+                            prompt += json.dumps(papers, ensure_ascii=False)
+
                         answer = ask_agent(prompt)
+
 
                     st.markdown(answer)
 
