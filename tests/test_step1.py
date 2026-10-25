@@ -33,8 +33,8 @@ def meal_metrics(cgm: pd.DataFrame, meals: pd.DataFrame) -> pd.DataFrame:
     for _, m in meals.iterrows():
         t0 = pd.Timestamp(m["timestamp"]).tz_convert("UTC")
         g = cgm[cgm["user_id"] == m["user_id"]].set_index("t")["glucose_mg_dl"].astype(float)
-        pre = g[(g.index >= t0 - pd.Timedelta(minutes=15)) & (g.index <= t0)]
-        post = g[(g.index > t0) & (g.index <= t0 + pd.Timedelta(minutes=120))]
+        pre = g[(g.index >= t0 - pd.Timedelta(minutes=15)) & (g.index < t0)]
+        post = g[(g.index >= t0) & (g.index <= t0 + pd.Timedelta(minutes=120))]
         rows.append({
             "meal_id": m["meal_id"], "n_pre": len(pre), "n_post": len(post),
             "baseline": pre.mean(), "peak": post.max(), "n_at_peak": int((post == post.max()).sum()),
@@ -78,7 +78,7 @@ class ShippedData(unittest.TestCase):
     def test_targets_exact_and_peak_unique(self):
         r = meal_metrics(self.cgm, self.meals).merge(targets(), on="meal_id")
         self.assertEqual(len(r), 63)
-        self.assertTrue((r["n_pre"] == 4).all() and (r["n_post"] == 24).all())
+        self.assertTrue((r["n_pre"] == 3).all() and (r["n_post"] == 25).all())
         self.assertEqual(float((r["baseline"] - r["t_base"]).abs().max()), 0.0)
         self.assertEqual(float((r["peak"] - r["t_peak"]).abs().max()), 0.0)
         self.assertTrue((r["n_at_peak"] == 1).all(), "every meal must have exactly one peak reading")
