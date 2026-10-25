@@ -48,6 +48,8 @@ capped 0.2 mg/dL below the target peak.
 
 ## Metric definitions used for validation (Step 2 will reuse them)
 
-- baseline = mean of the readings from 15 min before the meal through the meal time (4 readings)
-- peak = maximum reading after the meal through +120 min (24 readings)
+- baseline = mean of the readings from 15 min before the meal up to, but not including, the meal time (3 readings: −15, −10, −5 min)
+- peak = maximum reading from the meal time through +120 min, both ends included (25 readings: 0, +5, … +120 min)
 - rise = peak − baseline
+
+These are the definitions implemented in `glucose_analysis._metrics`. A reading taken exactly at the meal time counts toward the peak window, not the baseline.
