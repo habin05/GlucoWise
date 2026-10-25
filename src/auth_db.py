@@ -63,7 +63,7 @@ def add_user(username: str, password: str, cgm_user_id: str, db_path=None) -> No
 
 
 def verify_user(username: str, password: str, db_path=None) -> str | None:
-    """Return the CGM user id ("A" to "F") if the login is right, else None."""
+    """Return the CGM user id ("A"/"B"/"C"/"D"/"E"/"F") if the login is right, else None."""
     with _connect(db_path) as conn:
         row = conn.execute(
             "SELECT salt, password_hash, cgm_user_id FROM users WHERE username = ?",
@@ -84,7 +84,7 @@ def list_users(db_path=None) -> list[tuple[str, str]]:
 
 
 def login_gate(db_path=None) -> str:
-    """Streamlit gate: shows a login form until success, then returns "A" to "F"."""
+    """Streamlit gate: shows a login form until success, then returns "A"/"B"/"C"/"D"/"E"/"F"."""
     import streamlit as st
 
     if st.session_state.get("auth_user_id"):
