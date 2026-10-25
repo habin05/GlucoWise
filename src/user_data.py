@@ -205,27 +205,37 @@ def with_user_data(base_cgm: pd.DataFrame, base_meals: pd.DataFrame, demo_user: 
     return cgm, meals
 
 
-# ------------------------------------------------------------- warnings
-def check_meals(cgm: pd.DataFrame, meals: pd.DataFrame, user_id: str) -> dict:
-    """식사별 유의사항 {meal_id: [메시지, ...]}. 문제 없는 식사는 키가 없다."""
+MIN_PRE_READINGS = 2   # demo threshold, not a medical standard
+MIN_POST_READINGS = 6  # demo threshold, not a medical standard
+
+
+def meal_status(cgm: pd.DataFrame, meals: pd.DataFrame, user_id: str) -> dict:
+    """{meal_id: {"insufficient": bool, "notes": [str]}} for meals that need a note."""
     user_cgm = cgm[cgm["user_id"] == user_id]
+    cgm_time = user_cgm["time"]
     user_meals = meals[meals["user_id"] == user_id].sort_values("time")
     ids, times = list(user_meals["meal_id"]), list(user_meals["time"])
 
-    out: dict[str, list[str]] = {}
+    out: dict[str, dict] = {}
     for i, (meal_id, t) in enumerate(zip(ids, times)):
         notes = []
-        before = user_cgm[(user_cgm["time"] >= t - BASELINE_WINDOW) & (user_cgm["time"] < t)]
-        after = user_cgm[(user_cgm["time"] >= t) & (user_cgm["time"] <= t + PEAK_WINDOW)]
-        if before.empty:
-            notes.append("식사 전 15분의 CGM 데이터가 없어 계산할 수 없어요.")
-        if after.empty:
-            notes.append("식사 후 2시간 안의 CGM 데이터가 없어 계산할 수 없어요.")
-        elif user_cgm["time"].max() < t + PEAK_WINDOW:
+        n_pre = int(((cgm_time >= t - BASELINE_WINDOW) & (cgm_time < t)).sum())
+        n_post = int(((cgm_time >= t) & (cgm_time <= t + PEAK_WINDOW)).sum())
+        insufficient = n_pre < MIN_PRE_READINGS or n_post < MIN_POST_READINGS
+        if n_pre < MIN_PRE_READINGS:
+            notes.append(f"식사 전 15분의 CGM 값이 {n_pre}개뿐이라 계산하지 않았어요. (최소 {MIN_PRE_READINGS}개)")
+        if n_post < MIN_POST_READINGS:
+            notes.append(f"식사 후 2시간 안의 CGM 값이 {n_post}개뿐이라 계산하지 않았어요. (최소 {MIN_POST_READINGS}개)")
+        if not insufficient and not cgm_time.empty and cgm_time.max() < t + PEAK_WINDOW:
             notes.append("식사 후 2시간 중 일부만 기록되어 있어, 결과가 불완전할 수 있어요.")
-        if i + 1 < len(times) and times[i + 1] - t < PEAK_WINDOW:
+        if i + 1 < len(times) and times[i + 1] - t <= PEAK_WINDOW:  # exactly 2 h counts as overlap
             gap = int((times[i + 1] - t).total_seconds() // 60)
             notes.append(f"다음 식사가 {gap}분 뒤라 분석 구간이 겹쳐요.")
         if notes:
-            out[meal_id] = notes
+            out[meal_id] = {"insufficient": insufficient, "notes": notes}
     return out
+
+
+def check_meals(cgm: pd.DataFrame, meals: pd.DataFrame, user_id: str) -> dict:
+    """{meal_id: [notes]} (kept so existing callers still work)."""
+    return {k: v["notes"] for k, v in meal_status(cgm, meals, user_id).items()}
