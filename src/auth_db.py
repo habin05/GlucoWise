@@ -1,12 +1,11 @@
 """Local demo login backed by SQLite (stdlib only). Not for deployment.
 
-Each account maps to one synthetic CGM user ("A", "B" or "C").
+Each account maps to one synthetic CGM user ("A" to "F").
 Passwords are never stored: only a salted PBKDF2 hash.
 
 Setup (once, from the project root):
-    python src/auth_db.py add jungyeon A      # asks for a password
-    python src/auth_db.py add habin B
-    python src/auth_db.py add hyuna C
+    python src/auth_db.py add demo A      # asks for a password
+    python src/auth_db.py add reviewer B
     python src/auth_db.py list
 
 In app.py (replaces the A/B/C selectbox):
@@ -36,7 +35,7 @@ def _connect(db_path=None) -> sqlite3.Connection:
                username TEXT PRIMARY KEY,
                salt BLOB NOT NULL,
                password_hash BLOB NOT NULL,
-               cgm_user_id TEXT NOT NULL CHECK (cgm_user_id IN ('A','B','C'))
+               cgm_user_id TEXT NOT NULL CHECK (cgm_user_id IN ('A','B','C','D','E','F'))
            )"""
     )
     return conn
@@ -52,7 +51,7 @@ def add_user(username: str, password: str, cgm_user_id: str, db_path=None) -> No
     if not username:
         raise ValueError("username is empty")
     if cgm_user_id not in VALID_USER_IDS:
-        raise ValueError("cgm_user_id must be A, B or C")
+        raise ValueError("cgm_user_id must be A, B, C, D, E or F")
     if len(password) < MIN_PASSWORD_LEN:
         raise ValueError(f"password must be at least {MIN_PASSWORD_LEN} characters")
     salt = os.urandom(16)
@@ -64,7 +63,7 @@ def add_user(username: str, password: str, cgm_user_id: str, db_path=None) -> No
 
 
 def verify_user(username: str, password: str, db_path=None) -> str | None:
-    """Return the CGM user id ("A"/"B"/"C") if the login is right, else None."""
+    """Return the CGM user id ("A" to "F") if the login is right, else None."""
     with _connect(db_path) as conn:
         row = conn.execute(
             "SELECT salt, password_hash, cgm_user_id FROM users WHERE username = ?",
@@ -85,7 +84,7 @@ def list_users(db_path=None) -> list[tuple[str, str]]:
 
 
 def login_gate(db_path=None) -> str:
-    """Streamlit gate: shows a login form until success, then returns "A"/"B"/"C"."""
+    """Streamlit gate: shows a login form until success, then returns "A" to "F"."""
     import streamlit as st
 
     if st.session_state.get("auth_user_id"):
@@ -129,4 +128,4 @@ if __name__ == "__main__":
         for name, uid in list_users():
             print(f"{name}\t{uid}")
     else:
-        print("Usage: python src/auth_db.py add <username> <A|B|C>  |  list")
+        print("Usage: python src/auth_db.py add <username> <A|B|C|D|E|F>  |  list")
