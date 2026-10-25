@@ -2,7 +2,7 @@
 
 All data is synthetic. The agent only explains numbers that Python already computed.
 
-## 1. Agent instructions (Habin: paste into GlucoWise-Agent's instructions in Foundry)
+## 1. Agent instructions (paste into GlucoWise-Agent's instructions in Foundry)
 
 ```
 You are GlucoWise, an assistant that explains a user's past meal and glucose records.
@@ -25,9 +25,10 @@ Rules:
 6. Answer in English, in 2-5 short sentences, unless the user asks for a list.
 ```
 
-## 2. Streamlit snippet (Hyeona: replaces the hard-coded `simulated_data` example)
+## 2. Streamlit snippet (minimal example; the full app is `src/app.py`)
 
 ```python
+import os
 import streamlit as st
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
@@ -36,7 +37,7 @@ from src.agent_context import build_agent_prompt
 @st.cache_resource
 def get_agent():
     project = AIProjectClient(
-        endpoint=st.secrets["FOUNDRY_PROJECT_ENDPOINT"],
+        endpoint=os.environ["FOUNDRY_ENDPOINT"],
         credential=DefaultAzureCredential(),
         allow_preview=True,
     )
@@ -52,11 +53,11 @@ if question:
     st.chat_message("assistant").write(response.output_text)
 ```
 
-Put the endpoint in `.streamlit/secrets.toml` (already git-ignored): `FOUNDRY_PROJECT_ENDPOINT = "https://..."`.
-Each call sends one self-contained prompt (about 7 KB), so no conversation object is needed. Run from the
-project root so that `src` can be imported.
+Set the endpoint in the `FOUNDRY_ENDPOINT` environment variable (the full app does the same), or adapt the snippet to
+read it from `.streamlit/secrets.toml` (git-ignored). Each call sends one self-contained prompt (about 7 KB), so no
+conversation object is needed. Run from the project root so that `src` can be imported.
 
-## 3. Accuracy checks (Habin: ask these, compare to the expected values)
+## 3. Accuracy checks (ask these, compare to the expected values)
 
 | User | Question | Expected from the data |
 | --- | --- | --- |
@@ -76,7 +77,7 @@ a food "causes" a glucose response.
 Extra feature, lower priority than the CGM analysis. The agent writes the search query, Python searches PubMed,
 and the agent explains only the papers that came back.
 
-### 4.1 Extra agent instructions (Habin: append to the instructions in section 1)
+### 4.1 Extra agent instructions (append to the instructions in section 1)
 
 ```
 Literature rules (only when a "PubMed results (JSON)" block is present):
@@ -93,7 +94,7 @@ Literature rules (only when a "PubMed results (JSON)" block is present):
     the papers in separate paragraphs, and remind the reader that the CGM data is simulated.
 ```
 
-### 4.2 Query-writing prompt (Hyeona: first call, to get a search query for a recognised food)
+### 4.2 Query-writing prompt (first call, to get a search query for a recognised food)
 
 ```
 Write ONE English PubMed search query about how the bioactive compounds of the food below relate to
@@ -104,7 +105,7 @@ Food: {food}
 Reply with the query only.
 ```
 
-### 4.3 Streamlit snippet (Hyeona)
+### 4.3 Streamlit snippet
 
 ```python
 import json
@@ -123,7 +124,11 @@ answer = agent.responses.create(input=prompt).output_text
 Show `query` and the PubMed links from `papers["articles"]` in the UI so users can open the real papers.
 Results are best-match ranked (`sort="relevance"`) but still include off-topic papers, so the agent must filter.
 
-### 4.4 Checks for the literature answer (Habin)
+> The in-app chat (`src/app.py`) currently attaches PubMed results for a fixed query
+> (`sulforaphane glucose metabolism`) when a question contains the word "pubmed". The agent-written query in 4.2
+> is not wired into the app yet.
+
+### 4.4 Checks for the literature answer
 
 Run `python src/pubmed_search.py "sulforaphane glucose metabolism"` on your machine to see the raw results first.
 PubMed content changes over time, so judge behaviour, not exact papers.
