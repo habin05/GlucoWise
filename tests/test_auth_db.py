@@ -21,7 +21,7 @@ class AuthDbTests(unittest.TestCase):
 
     def test_validation(self):
         with self.assertRaises(ValueError):
-            auth_db.add_user("x", "secret1", "D", self.db)
+            auth_db.add_user("x", "secret1", "G", self.db)
         with self.assertRaises(ValueError):
             auth_db.add_user("x", "123", "A", self.db)
         with self.assertRaises(ValueError):

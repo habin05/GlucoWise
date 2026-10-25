@@ -2,3 +2,5 @@ pandas
 numpy
 streamlit
 plotly
+azure-ai-projects
+azure-identity
