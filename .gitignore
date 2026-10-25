@@ -228,3 +228,5 @@ __marimo__/
 # data/private/
 
 data/glucowise_users.db
+
+data/glucowise.db
