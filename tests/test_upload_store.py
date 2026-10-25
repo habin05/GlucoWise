@@ -126,7 +126,7 @@ class MultiDateTests(UploadStoreTestBase):
         self.upload(day="2026-10-20")
         self.upload(day="2026-10-21")
         us.save_meal("A", "2026-10-20T08:00:00", ["white rice", "egg"], db_path=self.db)
-        us.save_meal("A", "2026-10-21T08:00:00", ["oatmeal"], db_path=self.db)
+        us.save_meal("A", "2026-10-21T08:00:00", ["granola"], db_path=self.db)
 
     def test_dates_are_kept_apart(self):
         day1 = us.load_cgm("A", "2026-10-20", "2026-10-20", db_path=self.db)
@@ -141,7 +141,7 @@ class MultiDateTests(UploadStoreTestBase):
         meals1 = us.list_meals("A", "2026-10-20", "2026-10-20", db_path=self.db)
         meals2 = us.list_meals("A", "2026-10-21", "2026-10-21", db_path=self.db)
         self.assertEqual([m["foods"] for m in meals1], [["white_rice", "egg"]])
-        self.assertEqual([m["foods"] for m in meals2], [["oatmeal"]])
+        self.assertEqual([m["foods"] for m in meals2], [["granola"]])
         self.assertEqual(len(us.list_meals("A", db_path=self.db)), 2)
 
     def test_list_dates(self):
@@ -239,10 +239,10 @@ class MealTests(UploadStoreTestBase):
 
     def test_same_time_with_other_foods_replaces_the_food_list(self):
         first = us.save_meal("A", "2026-10-20T08:00:00", ["rice", "egg", "spinach"], db_path=self.db)
-        again = us.save_meal("A", "2026-10-20T08:00:00", ["oatmeal"], db_path=self.db)
+        again = us.save_meal("A", "2026-10-20T08:00:00", ["granola"], db_path=self.db)
         self.assertEqual(again["action"], "updated")
         self.assertEqual(again["meal_id"], first["meal_id"])
-        self.assertEqual(us.list_meals("A", db_path=self.db)[0]["foods"], ["oatmeal"])
+        self.assertEqual(us.list_meals("A", db_path=self.db)[0]["foods"], ["granola"])
         self.assertEqual(self.count("meals"), 1)
         self.assertEqual(self.count("meal_foods"), 1)
 
