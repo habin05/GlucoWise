@@ -1,12 +1,11 @@
 """Local demo login backed by SQLite (stdlib only). Not for deployment.
 
-Each account maps to one synthetic CGM user ("A", "B" or "C").
+Each account maps to one synthetic CGM user ("A" to "F").
 Passwords are never stored: only a salted PBKDF2 hash.
 
 Setup (once, from the project root):
-    python src/auth_db.py add jungyeon A      # asks for a password
-    python src/auth_db.py add habin B
-    python src/auth_db.py add hyuna C
+    python src/auth_db.py add demo A      # asks for a password
+    python src/auth_db.py add reviewer B
     python src/auth_db.py list
 
 In app.py (replaces the A/B/C selectbox):
